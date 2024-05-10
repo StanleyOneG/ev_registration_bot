@@ -17,3 +17,5 @@ secrets
 *venv
 *secret.yaml
 __pycache__/
+credentials.json
+token.json
