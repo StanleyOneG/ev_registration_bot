@@ -10,7 +10,14 @@ python = "^3.11"
 google-api-python-client = "^2.128.0"
 google-auth-httplib2 = "^0.2.0"
 google-auth-oauthlib = "^1.2.0"
+python-telegram-bot = {version="^21.1.1", extras=["callback-data"]}
+pydantic-settings = "^2.2.1"
+pytz = "^2024.1"
 
+
+
+[tool.poetry.group.dev.dependencies]
+python-dotenv = "^1.0.1"
 
 [build-system]
 requires = ["poetry-core"]
