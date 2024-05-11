@@ -158,7 +158,7 @@ def get_next_regs(day: datetime.datetime) -> list | list[Slot] | None:
         logger.error(f"An error occurred while fetching events: {error}")
 
 
-def get_free_slots_for_a_day(day: datetime.datetime):
+def get_free_slots_for_a_day(day: datetime.datetime) -> list | list[Slot]:
     hours = [
         moscow_tz.localize(
             datetime.datetime(
@@ -194,9 +194,13 @@ def get_free_slots_for_a_day(day: datetime.datetime):
     now = datetime.datetime.now(moscow_tz)
 
     if day == now.date():
-        free_slots = [slot for slot in free_slots if slot.start >= now.isoformat()]
+        free_slots: list[Slot] = [
+            slot for slot in free_slots if slot.start >= now.isoformat()
+        ]
     else:
-        free_slots = [slot for slot in free_slots if slot.start >= "08:00:00"]
+        free_slots: list[Slot] = [
+            slot for slot in free_slots if slot.start >= "08:00:00"
+        ]
 
     # logger.info(free_slots)
     return free_slots
