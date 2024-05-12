@@ -1,5 +1,10 @@
 import datetime
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import (
+    Update,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    InlineKeyboardButton,
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -118,12 +123,16 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if free_slots_for_a_day:
 
-        slots_time = [
-            f"{':'.join(slot.start.split('T')[1].split('+')[0].split(':')[:2])}-{':'.join(slot.end.split('T')[1].split('+')[0].split(':')[:2])}"
+        reply_keyboard = [
+            [
+                InlineKeyboardButton(
+                    f"{':'.join(slot.start.split('T')[1].split('+')[0].split(':')[:2])}-{':'.join(slot.end.split('T')[1].split('+')[0].split(':')[:2])}"
+                )
+            ]
             for slot in free_slots_for_a_day
         ]
 
-        reply_keyboard = [slots_time]
+        # reply_keyboard = [slots_time]
 
         await update.message.reply_text(
             "Выберете время",
@@ -137,9 +146,14 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
     user_message = update.message.text
-
-    chosen_start_time = user_message.split("-")[0]
-    chosen_end_time = user_message.split("-")[1]
+    try:
+        chosen_start_time = user_message.split("-")[0]
+        chosen_end_time = user_message.split("-")[1]
+    except IndexError:
+        await update.message.reply_text(
+            "Пожалуйста выберите из списка",
+        )
+        return REGISTER_NAME
 
     global chosen_start_time_str
     chosen_start_time_str = (
