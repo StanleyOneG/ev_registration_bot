@@ -15,6 +15,7 @@ from google_calendar_helper.google_calendar_get import (
     get_free_slots_for_a_day,
     Slot,
 )
+from google_calendar_helper.google_calendar_create import create_event
 import pytz
 
 
@@ -25,7 +26,14 @@ logger = logging.getLogger(__name__)
 
 moscow_tz = pytz.timezone("Europe/Moscow")
 
-CHOOSE_DATE, CHOOSE_TIME, REGISTER = range(3)
+(
+    CHOOSE_DATE,
+    CHOOSE_TIME,
+    REGISTER_NAME,
+    REGISTER_AMOUNT,
+    REGISTER_PHONE,
+    MAKE_REGISTRATION,
+) = range(6)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -75,7 +83,7 @@ async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_keyboard = get_reply_keyboard()
 
     await update.message.reply_text(
-        "Выберете дату",
+        "Выберете дату\n\nНажмите /cancel чтобы выйти",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard,
         ),
@@ -87,13 +95,14 @@ async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("User %s started free time.", update.message.from_user.first_name)
     user = update.message.from_user
-    message = update.message.text
+    user_message = update.message.text
     logger.info("Free time for %s.", user.first_name)
 
-    day = message.split(".")[0]
-    month = message.split(".")[1]
-    year = message.split(".")[2]
+    day = user_message.split(".")[0]
+    month = user_message.split(".")[1]
+    year = user_message.split(".")[2]
 
+    global date
     date = moscow_tz.localize(datetime.datetime(int(year), int(month), int(day))).date()
 
     try:
@@ -122,12 +131,109 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_keyboard,
             ),
         )
-        return REGISTER
+        return REGISTER_NAME
 
 
-async def register(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
-    logger.info("User %s started registration.", user.first_name)
+    user_message = update.message.text
+
+    chosen_start_time = user_message.split("-")[0]
+    chosen_end_time = user_message.split("-")[1]
+
+    global chosen_start_time_str
+    chosen_start_time_str = (
+        f"{date.year}-0{date.month}-{date.day}T{chosen_start_time}:00+03:00"
+    )
+
+    global chosen_end_time_str
+    chosen_end_time_str = (
+        f"{date.year}-0{date.month}-{date.day}T{chosen_end_time}:00+03:00"
+    )
+
+    await update.message.reply_text(
+        "На какое имя зарегистрировать?",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+    return REGISTER_AMOUNT
+
+
+async def register_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.message.from_user
+    user_message = update.message.text
+
+    if user_message:
+        global registration_name
+        registration_name = user_message
+
+        reply_keyboard = [
+            ["1"],
+            ["2"],
+            ["3"],
+            ["4"],
+            ["5"],
+        ]
+
+        await update.message.reply_text(
+            "Сколько еще человек будет с Вами?\n\nВыберите из списка:",
+            reply_markup=ReplyKeyboardMarkup(
+                reply_keyboard,
+            ),
+        )
+        return REGISTER_PHONE
+
+
+async def register_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.message.from_user
+    user_message = update.message.text
+
+    if user_message:
+        global registration_amount
+        try:
+            registration_amount = int(user_message)
+            if int(user_message) > 5:
+                await update.message.reply_text(
+                    "Количество не должно превышать 5 человек\n\nПожалуйста выберите из списка:",
+                )
+                return REGISTER_PHONE
+        except ValueError:
+            await update.message.reply_text(
+                "Количество должно быть числом\n\nПожалуйста выберите из списка:",
+            )
+            return REGISTER_PHONE
+
+        await update.message.reply_text(
+            "Напишите ваш номер телефона для связи",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return MAKE_REGISTRATION
+
+
+async def make_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.message.from_user
+    user_message = update.message.text
+
+    if user_message:
+        registration_phone = user_message
+
+        registration_result = create_event(
+            summary=f"{registration_name}+{registration_amount}",
+            start_time=chosen_start_time_str,
+            end_time=chosen_end_time_str,
+            phone=registration_phone,
+        )
+        if registration_result:
+            await update.message.reply_text(
+                "Вы успешно зарегистрированы!\nБудем Вас ждать!\n\nЧтобы записаться повторно нажмите /start",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return ConversationHandler.END
+        await update.message.reply_text(
+            "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return ConversationHandler.END
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -138,7 +244,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info("User %s canceled the conversation.", user.first_name)
 
     await update.message.reply_text(
-        "Bye! I hope we can talk again some day.", reply_markup=ReplyKeyboardRemove()
+        "Чтобы зарегистрироваться снова нажмите /start",
+        reply_markup=ReplyKeyboardRemove(),
     )
 
     return ConversationHandler.END
@@ -152,7 +259,18 @@ if __name__ == "__main__":
         states={
             CHOOSE_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_date)],
             CHOOSE_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_time)],
-            REGISTER: [MessageHandler(filters.TEXT & ~filters.COMMAND, register)],
+            REGISTER_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, register_name)
+            ],
+            REGISTER_AMOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, register_amount)
+            ],
+            REGISTER_PHONE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, register_phone)
+            ],
+            MAKE_REGISTRATION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, make_registration)
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
