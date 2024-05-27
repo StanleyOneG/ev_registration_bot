@@ -249,7 +249,7 @@ async def register_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         ]
 
         await update.message.reply_text(
-            "Сколько еще человек будет с Вами?\n\nВыберите из списка:",
+            "Сколько всего человек придет на посещение включая Вас?\n\nВыберите из списка:",
             reply_markup=ReplyKeyboardMarkup(
                 reply_keyboard,
             ),
