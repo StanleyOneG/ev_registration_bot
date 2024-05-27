@@ -22,6 +22,7 @@ from google_calendar_helper.google_calendar_get import (
 )
 from google_calendar_helper.google_calendar_create import create_event
 import pytz
+from asyncio import sleep
 
 
 logging.basicConfig(
@@ -34,11 +35,13 @@ moscow_tz = pytz.timezone("Europe/Moscow")
 (
     CHOOSE_DATE,
     CHOOSE_TIME,
+    ARE_CHILDREN,
+    CHILDREN_AMOUNT,
     REGISTER_NAME,
     REGISTER_AMOUNT,
     REGISTER_PHONE,
     MAKE_REGISTRATION,
-) = range(6)
+) = range(8)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -140,11 +143,10 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_keyboard,
             ),
         )
-        return REGISTER_NAME
+        return ARE_CHILDREN
 
 
-async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = update.message.from_user
+async def are_children(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     try:
         chosen_start_time = user_message.split("-")[0]
@@ -164,6 +166,63 @@ async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     chosen_end_time_str = (
         f"{date.year}-0{date.month}-{date.day}T{chosen_end_time}:00+03:00"
     )
+
+    reply_keyboard = [["Да", "Нет"]]
+
+    await update.message.reply_text(
+        "Будут ли с Вами дети?",
+        reply_markup=ReplyKeyboardMarkup(
+            reply_keyboard,
+        ),
+    )
+    return CHILDREN_AMOUNT
+
+
+async def children_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+    if user_message == "Нет":
+        # Set the user_children_amount to 0 when "Нет" is selected
+        global user_children_amount
+        user_children_amount = 0
+        await update.message.reply_text(
+            "На какое имя зарегистрировать?",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return REGISTER_NAME
+    elif user_message == "Да":
+        reply_keyboard = [["1"], ["2"], ["3"], ["4"], ["5"]]
+        await update.message.reply_text(
+            "Укажите какое количество детей будет с Вами",
+            reply_markup=ReplyKeyboardMarkup(
+                reply_keyboard,
+            ),
+        )
+        return REGISTER_NAME
+    else:
+        await update.message.reply_text(
+            "Пожалуйста, выберите из списка",
+        )
+        return CHILDREN_AMOUNT
+
+
+async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_message = update.message.text
+    global user_children_amount
+
+    try:
+        # This is to ensure if the previous state was CHILDREN_AMOUNT
+        user_children_amount = int(user_message)
+    except ValueError:
+        # If the user message is not a number, handle the 'Нет' case
+        if user_message.lower() == "нет":
+            user_children_amount = 0
+        else:
+            logger.error("User entered not a number")
+            await update.message.reply_text(
+                "Что то пошло не так...\n\nЧтобы зарегистрироваться снова нажмите /start",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return ConversationHandler.END
 
     await update.message.reply_text(
         "На какое имя зарегистрировать?",
@@ -235,6 +294,7 @@ async def make_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             summary=f"{registration_name}+{registration_amount}",
             start_time=chosen_start_time_str,
             end_time=chosen_end_time_str,
+            children_amount=user_children_amount,
             phone=registration_phone,
         )
         if registration_result:
@@ -273,6 +333,12 @@ if __name__ == "__main__":
         states={
             CHOOSE_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_date)],
             CHOOSE_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_time)],
+            ARE_CHILDREN: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, are_children)
+            ],
+            CHILDREN_AMOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, children_amount)
+            ],
             REGISTER_NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, register_name)
             ],

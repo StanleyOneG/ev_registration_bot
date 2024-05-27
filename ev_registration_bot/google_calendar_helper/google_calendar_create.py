@@ -32,7 +32,9 @@ def get_credentials():
     return creds
 
 
-def create_event(summary: str, start_time: str, end_time: str, phone: str) -> bool:
+def create_event(
+    summary: str, start_time: str, end_time: str, children_amount: int, phone: str
+) -> bool:
     creds = get_credentials()
     service = build("calendar", "v3", credentials=creds)
 
@@ -42,7 +44,7 @@ def create_event(summary: str, start_time: str, end_time: str, phone: str) -> bo
             "start": {"dateTime": start_time},
             "end": {"dateTime": end_time},
             "timeZone": "Europe/Moscow",
-            "description": f"Тел.: {phone}",
+            "description": f"Кол-во детей: {children_amount}\nТел.: {phone}\nTelegram-bot",
         }
         event = service.events().insert(calendarId="primary", body=event).execute()
         logger.info("Event created with ID: %s" % (event.get("id")))
