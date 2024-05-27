@@ -1,3 +1,4 @@
+import re
 import datetime
 from telegram import (
     Update,
@@ -32,6 +33,11 @@ logger = logging.getLogger(__name__)
 
 moscow_tz = pytz.timezone("Europe/Moscow")
 
+user_id: int | None = None
+
+registration_amount_done: bool = False
+user_children_amount: int | None = None
+
 (
     CHOOSE_DATE,
     CHOOSE_TIME,
@@ -45,6 +51,14 @@ moscow_tz = pytz.timezone("Europe/Moscow")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a message when the command /start is issued."""
+    global user_id
+    user_id = update.message.from_user.id
+    global registration_amount_done
+    registration_amount_done = False
+    global user_children_amount
+    user_children_amount = None
+    # reset other global variables
 
     reply_keyboard = [["Зарегистрироваться"]]
     await update.message.reply_text(
@@ -179,16 +193,16 @@ async def are_children(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def children_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global user_children_amount
     user_message = update.message.text
     if user_message == "Нет":
         # Set the user_children_amount to 0 when "Нет" is selected
-        global user_children_amount
         user_children_amount = 0
         await update.message.reply_text(
             "На какое имя зарегистрировать?",
             reply_markup=ReplyKeyboardRemove(),
         )
-        return REGISTER_NAME
+        return REGISTER_AMOUNT
     elif user_message == "Да":
         reply_keyboard = [["1"], ["2"], ["3"], ["4"], ["5"]]
         await update.message.reply_text(
@@ -208,26 +222,34 @@ async def children_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_message = update.message.text
     global user_children_amount
+    if user_children_amount is None or user_children_amount != 0:
+        try:
+            # This is to ensure if the previous state was CHILDREN_AMOUNT
+            user_children_amount = int(user_message)
+            if user_children_amount > 5:
+                await update.message.text("Пожалуйста, выберите из списка")
+                user_children_amount = None
+                return CHILDREN_AMOUNT
+        except ValueError:
+            await update.message.text("Пожалуйста, выберите из списка")
+            user_children_amount = None
+            return CHILDREN_AMOUNT
 
-    try:
-        # This is to ensure if the previous state was CHILDREN_AMOUNT
-        user_children_amount = int(user_message)
-    except ValueError:
-        # If the user message is not a number, handle the 'Нет' case
-        if user_message.lower() == "нет":
-            user_children_amount = 0
-        else:
-            logger.error("User entered not a number")
-            await update.message.reply_text(
-                "Что то пошло не так...\n\nЧтобы зарегистрироваться снова нажмите /start",
-                reply_markup=ReplyKeyboardRemove(),
-            )
-            return ConversationHandler.END
+            # # If the user message is not a number, handle the 'Нет' case
+            # if user_message.lower() == "нет":
+            #     user_children_amount = 0
+            # else:
+            #     logger.error("User entered not a number")
+            #     await update.message.reply_text(
+            #         "Что то пошло не так...\n\nЧтобы зарегистрироваться снова нажмите /start",
+            #         reply_markup=ReplyKeyboardRemove(),
+            #     )
+            #     return ConversationHandler.END
 
-    await update.message.reply_text(
-        "На какое имя зарегистрировать?",
-        reply_markup=ReplyKeyboardRemove(),
-    )
+        await update.message.reply_text(
+            "На какое имя зарегистрировать?",
+            reply_markup=ReplyKeyboardRemove(),
+        )
 
     return REGISTER_AMOUNT
 
@@ -258,36 +280,56 @@ async def register_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def register_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    global registration_amount_done
     user = update.message.from_user
     user_message = update.message.text
 
+    logger.info(f"line 279 {registration_amount_done=}")
+
     if user_message:
-        global registration_amount
-        try:
-            registration_amount = int(user_message)
-            if int(user_message) > 5:
+        if not registration_amount_done:
+            global registration_amount
+            try:
+                registration_amount = int(user_message)
+                logger.info(
+                    f"кол-во человек зарегистрировано -- {registration_amount} чел"
+                )
+                registration_amount_done = True
+                if int(user_message) > 5:
+                    await update.message.reply_text(
+                        "Количество не должно превышать 5 человек\n\nПожалуйста выберите из списка:",
+                    )
+                    return REGISTER_PHONE
+            except ValueError:
                 await update.message.reply_text(
-                    "Количество не должно превышать 5 человек\n\nПожалуйста выберите из списка:",
+                    "Количество должно быть числом\n\nПожалуйста выберите из списка:",
                 )
                 return REGISTER_PHONE
-        except ValueError:
-            await update.message.reply_text(
-                "Количество должно быть числом\n\nПожалуйста выберите из списка:",
-            )
-            return REGISTER_PHONE
 
         await update.message.reply_text(
             "Напишите ваш номер телефона для связи",
             reply_markup=ReplyKeyboardRemove(),
         )
+
+        logger.info(f"line 306 {registration_amount_done=}")
         return MAKE_REGISTRATION
 
 
 async def make_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
     user_message = update.message.text
+    phone_regex = re.compile(
+        r'^(\+7|8)(\s|-)?(\()?[0-9]{3}(\))?(\s|-)?([0-9]{3})(\s|-)?([0-9]{2})(\s|-)?([0-9]{2})$'
+    )
 
     if user_message:
+        # / check regexp
+        if not phone_regex.match(user_message):
+            await update.message.reply_text(
+                "Номер телефона не соответствует формату. Попробуйте снова.",
+            )
+            return MAKE_REGISTRATION
+
         registration_phone = user_message
 
         registration_result = create_event(
@@ -326,6 +368,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 if __name__ == "__main__":
+
     application = ApplicationBuilder().token(get_settings().telegram.bot_token).build()
 
     init_conv_handler = ConversationHandler(
