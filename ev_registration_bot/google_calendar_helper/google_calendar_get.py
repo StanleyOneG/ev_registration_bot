@@ -198,6 +198,7 @@ def get_free_slots_for_a_day(
             name="Free",
         )
         for hour in hours
+        if hour.hour != 15 and hour.hour != 16
     ]
 
     occupied = get_next_regs(day, commune)
