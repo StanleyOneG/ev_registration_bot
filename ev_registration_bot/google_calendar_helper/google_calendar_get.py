@@ -1,4 +1,5 @@
 import datetime
+import enum
 from pprint import pprint
 from google.auth.external_account_authorized_user import Credentials
 import pytz
@@ -23,6 +24,11 @@ SCOPES = ["https://www.googleapis.com/auth/calendar"]
 moscow_tz = pytz.timezone("Europe/Moscow")
 
 
+class Commune(enum.Enum):
+    AMERICAN = "american_calendar_configs"
+    GERMAN = "german_calendar_configs"
+
+
 class OutOfTimeException(Exception):
     pass
 
@@ -42,30 +48,38 @@ class Slot(BaseModel):
 now = datetime.datetime.now(moscow_tz)
 
 
-def get_creds() -> Credentials:
+def get_creds(commune: Commune) -> Credentials:
     creds = None
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+    logger.info(f"Getting credentials for {commune.value}")
+    logger.info(f"Path to token: {commune.value}/token.json")
+    if os.path.exists(f"{commune.value}/token.json"):
+        creds = Credentials.from_authorized_user_file(
+            f"{commune.value}/token.json", SCOPES
+        )
     if not creds or not creds.valid:
+
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open("token.json", "w") as token:
-            token.write(creds.to_json())
+            raise ValueError("Invalid credentials")
+
+        #     flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
+        #     creds = flow.run_local_server(port=0)
+        # with open(f"{commune.value}/token.json", "w") as token:
+        #     token.write(creds.to_json())
 
     return creds
 
 
-def get_regs_for_today():
+def get_regs_for_today(commune: Commune):
     now = datetime.datetime.now(moscow_tz)
     if now.hour >= 21:
         raise OutOfTimeException("Out of time for today")
 
     end_of_today = now.replace(hour=21, minute=0, second=0, microsecond=0)
     end_of_today_iso = end_of_today.isoformat()
-    creds = get_creds()
+    creds = get_creds(commune)
+
     try:
         service = build("calendar", "v3", credentials=creds)
 
@@ -98,10 +112,10 @@ def get_regs_for_today():
         logger.error(f"An error occurred while fetching events: {error}")
 
 
-def get_next_regs(day: datetime.datetime) -> list | list[Slot] | None:
+def get_next_regs(day: datetime.datetime, commune: Commune) -> list | list[Slot] | None:
     now = datetime.datetime.now(moscow_tz)
     if day == now.date():
-        return get_regs_for_today()
+        return get_regs_for_today(commune)
 
     start_of_day = moscow_tz.localize(
         datetime.datetime(
@@ -126,7 +140,7 @@ def get_next_regs(day: datetime.datetime) -> list | list[Slot] | None:
         )
     )
 
-    creds = get_creds()
+    creds = get_creds(commune)
 
     try:
         service = build("calendar", "v3", credentials=creds)
@@ -158,7 +172,10 @@ def get_next_regs(day: datetime.datetime) -> list | list[Slot] | None:
         logger.error(f"An error occurred while fetching events: {error}")
 
 
-def get_free_slots_for_a_day(day: datetime.datetime) -> list | list[Slot]:
+def get_free_slots_for_a_day(
+    day: datetime.datetime,
+    commune: Commune,
+) -> list | list[Slot]:
     hours = [
         moscow_tz.localize(
             datetime.datetime(
@@ -183,7 +200,7 @@ def get_free_slots_for_a_day(day: datetime.datetime) -> list | list[Slot]:
         for hour in hours
     ]
 
-    occupied = get_next_regs(day)
+    occupied = get_next_regs(day, commune)
 
     if occupied is None:
         return []
@@ -204,15 +221,3 @@ def get_free_slots_for_a_day(day: datetime.datetime) -> list | list[Slot]:
 
     # logger.info(free_slots)
     return free_slots
-
-
-# if __name__ == "__main__":
-#     logger.info(moscow_tz.localize(datetime.datetime(2024, 5, 12)).date())
-#     try:
-#         pprint(
-#             get_free_slots_for_a_day(
-#                 moscow_tz.localize(datetime.datetime(2024, 5, 12)).date()
-#             )
-#         )
-#     except OutOfTimeException:
-#         print("Out of time for today")

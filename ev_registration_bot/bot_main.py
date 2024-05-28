@@ -19,11 +19,10 @@ import logging
 from google_calendar_helper.google_calendar_get import (
     OutOfTimeException,
     get_free_slots_for_a_day,
-    Slot,
+    Commune,
 )
 from google_calendar_helper.google_calendar_create import create_event
 import pytz
-from asyncio import sleep
 
 
 logging.basicConfig(
@@ -126,12 +125,15 @@ async def choose_commune(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
-    if user_message not in communes:
-        await update.message.reply_text("Пожалуйста выберите из списка")
-        return CHOOSE_DATE
 
     global user_chosen_commune
-    user_chosen_commune = user_message
+    if user_message == "Север-американские":
+        user_chosen_commune = Commune.AMERICAN
+    elif user_message == "Северо-Германские":
+        user_chosen_commune = Commune.GERMAN
+    else:
+        await update.message.reply_text("Пожалуйста выберите из списка")
+        return CHOOSE_DATE
     reply_keyboard = get_reply_keyboard()
 
     await update.message.reply_text(
@@ -150,6 +152,8 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     logger.info("Free time for %s.", user.first_name)
 
+    global user_chosen_commune
+
     day = user_message.split(".")[0]
     month = user_message.split(".")[1]
     year = user_message.split(".")[2]
@@ -158,15 +162,23 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date = moscow_tz.localize(datetime.datetime(int(year), int(month), int(day))).date()
 
     try:
-        free_slots_for_a_day = get_free_slots_for_a_day(date)
+        logger.info(f"{user_chosen_commune=}")
+        free_slots_for_a_day = get_free_slots_for_a_day(date, user_chosen_commune)
     except OutOfTimeException:
         await update.message.reply_text(
-            "Все занято. Выберите другую дату",
+            "На выбранный день все занято. Пожалуйста, выберите другую дату",
             reply_markup=ReplyKeyboardMarkup(
                 get_reply_keyboard(),
             ),
         )
         return CHOOSE_DATE
+    except ValueError as e:
+        logger.error(e)
+        await update.message.reply_text(
+            "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return ConversationHandler.END
 
     if free_slots_for_a_day:
 
@@ -264,17 +276,6 @@ async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             await update.message.text("Пожалуйста, выберите из списка")
             user_children_amount = None
             return CHILDREN_AMOUNT
-
-            # # If the user message is not a number, handle the 'Нет' case
-            # if user_message.lower() == "нет":
-            #     user_children_amount = 0
-            # else:
-            #     logger.error("User entered not a number")
-            #     await update.message.reply_text(
-            #         "Что то пошло не так...\n\nЧтобы зарегистрироваться снова нажмите /start",
-            #         reply_markup=ReplyKeyboardRemove(),
-            #     )
-            #     return ConversationHandler.END
 
         await update.message.reply_text(
             "На какое имя зарегистрировать?",
