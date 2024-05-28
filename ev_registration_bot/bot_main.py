@@ -363,13 +363,25 @@ async def make_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         registration_phone = user_message
 
-        registration_result = create_event(
-            summary=f"{registration_name}+{registration_amount}",
-            start_time=chosen_start_time_str,
-            end_time=chosen_end_time_str,
-            children_amount=user_children_amount,
-            phone=registration_phone,
-        )
+        try:
+            assert isinstance(user_children_amount, int)
+            assert isinstance(user_chosen_commune, Commune)
+
+            registration_result = create_event(
+                summary=f"{registration_name}+{registration_amount}",
+                start_time=chosen_start_time_str,
+                end_time=chosen_end_time_str,
+                children_amount=user_children_amount,
+                phone=registration_phone,
+                commune=user_chosen_commune,
+            )
+        except (ValueError, AssertionError) as e:
+            logger.error(f"An error occurred: {e}")
+            await update.message.reply_text(
+                "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return ConversationHandler.END
         if registration_result:
             await update.message.reply_text(
                 "Вы успешно зарегистрированы!\nБудем Вас ждать!\n\nЧтобы записаться повторно нажмите /start",

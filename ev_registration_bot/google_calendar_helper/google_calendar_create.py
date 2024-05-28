@@ -4,7 +4,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import logging
-from google_calendar_get import Commune
+from google_calendar_helper.google_calendar_get import Commune
 
 
 logging.basicConfig(
