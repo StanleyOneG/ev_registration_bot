@@ -23,6 +23,7 @@ from google_calendar_helper.google_calendar_get import (
 )
 from google_calendar_helper.google_calendar_create import create_event
 import pytz
+import enum
 
 
 logging.basicConfig(
@@ -33,9 +34,19 @@ logger = logging.getLogger(__name__)
 moscow_tz = pytz.timezone("Europe/Moscow")
 
 
+class VisitType(enum.Enum):
+    THERAPY = "therapy"
+    LECTURE = "lecture"
+
+
 communes = [
     "Север-американские",
     "Северо-Германские",
+]
+
+visit_type = [
+    ["Терапия (индивидуально, 1 час)"],
+    ["Лекция (с другими гостями, 30 мин. или 1 час)"],
 ]
 
 user_id: int | None = None
@@ -43,9 +54,11 @@ user_id: int | None = None
 registration_amount_done: bool = False
 user_children_amount: int | None = None
 user_chosen_commune: str | None = None
+user_visit_type: str | None = None
 
 (
     CHOOSE_COMMUNE,
+    CHOOSE_VISIT_TYPE,
     CHOOSE_DATE,
     CHOOSE_TIME,
     ARE_CHILDREN,
@@ -54,7 +67,7 @@ user_chosen_commune: str | None = None
     REGISTER_AMOUNT,
     REGISTER_PHONE,
     MAKE_REGISTRATION,
-) = range(9)
+) = range(10)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -120,10 +133,11 @@ async def choose_commune(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ),
     )
 
-    return CHOOSE_DATE
+    return CHOOSE_VISIT_TYPE
 
 
-async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def choose_visit_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reply_keyboard = visit_type
     user_message = update.message.text
 
     global user_chosen_commune
@@ -133,7 +147,29 @@ async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_chosen_commune = Commune.GERMAN
     else:
         await update.message.reply_text("Пожалуйста выберите из списка")
+        return CHOOSE_VISIT_TYPE
+
+    await update.message.reply_text(
+        "Выберите тип посещения",
+        reply_markup=ReplyKeyboardMarkup(
+            reply_keyboard,
+        ),
+    )
+    return CHOOSE_DATE
+
+
+async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+
+    global user_visit_type
+    if user_message == "Терапия (индивидуально, 1 час)":
+        user_visit_type = VisitType.THERAPY
+    elif user_message == "Лекция (с другими гостями, 30 мин. или 1 час)":
+        user_visit_type = VisitType.LECTURE
+    else:
+        await update.message.reply_text("Пожалуйста выберите из списка")
         return CHOOSE_DATE
+
     reply_keyboard = get_reply_keyboard()
 
     await update.message.reply_text(
@@ -419,6 +455,9 @@ if __name__ == "__main__":
         states={
             CHOOSE_COMMUNE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, choose_commune)
+            ],
+            CHOOSE_VISIT_TYPE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, choose_visit_type)
             ],
             CHOOSE_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_date)],
             CHOOSE_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_time)],
