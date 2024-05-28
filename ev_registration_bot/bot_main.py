@@ -33,12 +33,20 @@ logger = logging.getLogger(__name__)
 
 moscow_tz = pytz.timezone("Europe/Moscow")
 
+
+communes = [
+    "Север-американские",
+    "Северо-Германские",
+]
+
 user_id: int | None = None
 
 registration_amount_done: bool = False
 user_children_amount: int | None = None
+user_chosen_commune: str | None = None
 
 (
+    CHOOSE_COMMUNE,
     CHOOSE_DATE,
     CHOOSE_TIME,
     ARE_CHILDREN,
@@ -47,7 +55,7 @@ user_children_amount: int | None = None
     REGISTER_AMOUNT,
     REGISTER_PHONE,
     MAKE_REGISTRATION,
-) = range(8)
+) = range(9)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -58,6 +66,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     registration_amount_done = False
     global user_children_amount
     user_children_amount = None
+    global user_chosen_commune
+    user_chosen_commune = None
     # reset other global variables
 
     reply_keyboard = [["Зарегистрироваться"]]
@@ -68,7 +78,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ),
     )
 
-    return CHOOSE_DATE
+    return CHOOSE_COMMUNE
 
 
 def get_reply_keyboard():
@@ -101,7 +111,27 @@ def get_reply_keyboard():
     return reply_keyboard
 
 
+async def choose_commune(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reply_keyboard = [communes]
+
+    await update.message.reply_text(
+        "Выберите коммуну\n\nНажмите /cancel чтобы выйти",
+        reply_markup=ReplyKeyboardMarkup(
+            reply_keyboard,
+        ),
+    )
+
+    return CHOOSE_DATE
+
+
 async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+    if user_message not in communes:
+        await update.message.reply_text("Пожалуйста выберите из списка")
+        return CHOOSE_DATE
+
+    global user_chosen_commune
+    user_chosen_commune = user_message
     reply_keyboard = get_reply_keyboard()
 
     await update.message.reply_text(
@@ -169,7 +199,7 @@ async def are_children(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Пожалуйста выберите из списка",
         )
-        return REGISTER_NAME
+        return ARE_CHILDREN
 
     global chosen_start_time_str
     chosen_start_time_str = (
@@ -374,6 +404,9 @@ if __name__ == "__main__":
     init_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
+            CHOOSE_COMMUNE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, choose_commune)
+            ],
             CHOOSE_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_date)],
             CHOOSE_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_time)],
             ARE_CHILDREN: [
