@@ -122,7 +122,7 @@ def get_next_regs(day: datetime.datetime, commune: Commune) -> list | list[Slot]
             day.year,
             day.month,
             day.day,
-            8,
+            11,
             0,
             0,
             0,
@@ -188,7 +188,7 @@ def get_free_slots_for_a_day(
                 0,
             )
         )
-        for i in range(8, 21)
+        for i in range(11, 21)
     ]
 
     free_hour_slots = [
@@ -216,7 +216,7 @@ def get_free_slots_for_a_day(
         ]
     else:
         free_slots: list[Slot] = [
-            slot for slot in free_slots if slot.start >= "08:00:00"
+            slot for slot in free_slots if slot.start >= "11:00:00"
         ]
 
     # logger.info(free_slots)
