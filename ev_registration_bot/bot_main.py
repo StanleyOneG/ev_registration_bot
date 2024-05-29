@@ -80,6 +80,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_children_amount = None
     global user_chosen_commune
     user_chosen_commune = None
+    global user_visit_type
+    user_visit_type = None
     # reset other global variables
 
     reply_keyboard = [["Зарегистрироваться"]]
