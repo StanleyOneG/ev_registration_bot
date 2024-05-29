@@ -1,11 +1,11 @@
+import logging
 import os.path
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google_calendar_helper.google_calendar_get import Commune
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import logging
-from google_calendar_helper.google_calendar_get import Commune
-
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO

@@ -15,9 +15,27 @@ pydantic-settings = "^2.2.1"
 pytz = "^2024.1"
 
 
+[tool.pylint.'MESSAGES CONTROL']
+# max-line-length = 120
+disable = "missing-module-docstring,missing-function-docstring,missing-class-docstring"
+
+[tool.black]
+line-length = 88
+skip-string-normalization = true
+
+[tool.isort]
+profile = "black"
+line_length = 88
+# src_paths = ["app/src"]
+multi_line_output = 3
 
 [tool.poetry.group.dev.dependencies]
 python-dotenv = "^1.0.1"
+black = "^24.4.2"
+pylint = "^3.2.2"
+isort = "^5.13.2"
+mypy = "^1.10.0"
+flake8 = "^7.0.0"
 
 [build-system]
 requires = ["poetry-core"]

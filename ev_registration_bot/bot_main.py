@@ -1,10 +1,21 @@
-import re
 import datetime
+import enum
+import logging
+import re
+
+import pytz
+from config import get_settings
+from google_calendar_helper.google_calendar_create import create_event
+from google_calendar_helper.google_calendar_get import (
+    Commune,
+    OutOfTimeException,
+    get_free_slots_for_a_day,
+)
 from telegram import (
-    Update,
+    InlineKeyboardButton,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
-    InlineKeyboardButton,
+    Update,
 )
 from telegram.ext import (
     ApplicationBuilder,
@@ -14,17 +25,6 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from config import get_settings
-import logging
-from google_calendar_helper.google_calendar_get import (
-    OutOfTimeException,
-    get_free_slots_for_a_day,
-    Commune,
-)
-from google_calendar_helper.google_calendar_create import create_event
-import pytz
-import enum
-
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
