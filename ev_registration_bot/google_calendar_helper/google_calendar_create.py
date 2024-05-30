@@ -3,7 +3,7 @@ import os.path
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_calendar_helper.google_calendar_get import Commune
+from google_calendar_helper.utils import Commune, VisitType, get_visit_type_color
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -34,6 +34,19 @@ def get_credentials(commune: Commune):
     return creds
 
 
+def make_description_in_calendar(
+    children_amount: int, phone: str, visit_type: VisitType
+):
+    text = (
+        f"Тип посещения: {'Терапия' if visit_type.name == VisitType.THERAPY.name else 'Лекция'}\n\n"
+        f"Кол-во детей: {children_amount}\n\n"
+        f"Тел.: {phone}\n\n"
+        f"Telegram-bot"
+    )
+
+    return text
+
+
 def create_event(
     summary: str,
     start_time: str,
@@ -41,6 +54,7 @@ def create_event(
     children_amount: int,
     phone: str,
     commune: Commune,
+    visit_type: VisitType,
 ) -> bool:
     creds = get_credentials(commune)
     service = build("calendar", "v3", credentials=creds)
@@ -51,7 +65,12 @@ def create_event(
             "start": {"dateTime": start_time},
             "end": {"dateTime": end_time},
             "timeZone": "Europe/Moscow",
-            "description": f"Кол-во детей: {children_amount}\nТел.: {phone}\nTelegram-bot",
+            "description": make_description_in_calendar(
+                children_amount,
+                phone,
+                visit_type,
+            ),
+            "colorId": str(get_visit_type_color(visit_type, commune)),
         }
         event = service.events().insert(calendarId="primary", body=event).execute()
         logger.info("Event created with ID: %s" % (event.get("id")))

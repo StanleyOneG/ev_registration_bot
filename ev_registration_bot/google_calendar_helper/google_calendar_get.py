@@ -13,6 +13,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel, Field
 
+from google_calendar_helper.utils import Commune
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -22,11 +24,6 @@ logger = logging.getLogger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 moscow_tz = pytz.timezone("Europe/Moscow")
-
-
-class Commune(enum.Enum):
-    AMERICAN = "american_calendar_configs"
-    GERMAN = "german_calendar_configs"
 
 
 class OutOfTimeException(Exception):

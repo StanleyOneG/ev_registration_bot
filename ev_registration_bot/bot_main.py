@@ -5,6 +5,7 @@ import re
 
 import pytz
 from config import get_settings
+from google_calendar_helper.utils import VisitType
 from google_calendar_helper.google_calendar_create import create_event
 from google_calendar_helper.google_calendar_get import (
     Commune,
@@ -32,11 +33,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 moscow_tz = pytz.timezone("Europe/Moscow")
-
-
-class VisitType(enum.Enum):
-    THERAPY = "therapy"
-    LECTURE = "lecture"
 
 
 communes = [
@@ -200,7 +196,6 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date = moscow_tz.localize(datetime.datetime(int(year), int(month), int(day))).date()
 
     try:
-        logger.info(f"{user_chosen_commune=}")
         free_slots_for_a_day = get_free_slots_for_a_day(date, user_chosen_commune)
     except OutOfTimeException:
         await update.message.reply_text(
@@ -402,8 +397,15 @@ async def make_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         registration_phone = user_message
 
         try:
-            assert isinstance(user_children_amount, int)
-            assert isinstance(user_chosen_commune, Commune)
+            assert isinstance(
+                user_children_amount, int
+            ), "children_amount must be an integer"
+            assert isinstance(
+                user_chosen_commune, Commune
+            ), "commune must be of type Commune"
+            assert isinstance(
+                user_visit_type, VisitType
+            ), "visit_type must be of type VisitType"
 
             registration_result = create_event(
                 summary=f"{registration_name}+{registration_amount}",
@@ -412,6 +414,7 @@ async def make_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 children_amount=user_children_amount,
                 phone=registration_phone,
                 commune=user_chosen_commune,
+                visit_type=user_visit_type,
             )
         except (ValueError, AssertionError) as e:
             logger.error(f"An error occurred: {e}")
