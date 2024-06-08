@@ -4,10 +4,12 @@ import logging
 import re
 
 import pytz
-from config import get_settings
-from google_calendar_helper.utils import VisitType
-from google_calendar_helper.google_calendar_create import create_event
-from google_calendar_helper.google_calendar_get import (
+from ev_registration_bot.config import get_settings
+from ev_registration_bot.google_calendar_helper.utils import VisitType
+from ev_registration_bot.google_calendar_helper.google_calendar_create import (
+    create_event,
+)
+from ev_registration_bot.google_calendar_helper.google_calendar_get import (
     Commune,
     OutOfTimeException,
     get_free_slots_for_a_day,
@@ -26,6 +28,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+import google
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -205,6 +208,13 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ),
         )
         return CHOOSE_DATE
+    except google.auth.exceptions.RefreshError:
+        await update.message.reply_text(
+            "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        logger.error("Google auth error")
+        return ConversationHandler.END
     except ValueError as e:
         logger.error(e)
         await update.message.reply_text(
