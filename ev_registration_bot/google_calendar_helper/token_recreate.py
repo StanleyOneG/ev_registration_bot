@@ -6,12 +6,32 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+import argparse
+from enum import Enum
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 
-def main():
+class CommuneType(Enum):
+    """Enum containing the different communes."""
+
+    GERMAN = "german"
+    AMERICAN = "american"
+
+
+parser = argparse.ArgumentParser(
+    description="Recreate a token file for the Google Calendar API"
+)
+parser.add_argument(
+    "--commune",
+    "-c",
+    help="The commune for which to recreate the token file",
+    type=str,
+)
+
+
+def main(commune: CommuneType):
     """Shows basic usage of the Google Calendar API.
     Prints the start and name of the next 10 events on the user's calendar.
     """
@@ -19,17 +39,21 @@ def main():
     # The file token.json stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+    if os.path.exists(f"{commune.value}_calendar_configs/token.json"):
+        creds = Credentials.from_authorized_user_file(
+            f"{commune.value}_calendar_configs/token.json", SCOPES
+        )
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(
+                f"{commune.value}_calendar_configs/credentials.json", SCOPES
+            )
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open("token.json", "w") as token:
+        with open(f"{commune.value}_calendar_configs/token.json", "w") as token:
             token.write(creds.to_json())
 
     try:
@@ -66,4 +90,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    args = parser.parse_args()
+    if args.commune == CommuneType.AMERICAN.value:
+        main(CommuneType.AMERICAN)
+        exit(0)
+    elif args.commune == CommuneType.GERMAN.value:
+        main(CommuneType.GERMAN)
+        exit(0)
+    else:
+        print("Invalid commune. Please choose 'german' or 'american'.")
+        exit(1)
