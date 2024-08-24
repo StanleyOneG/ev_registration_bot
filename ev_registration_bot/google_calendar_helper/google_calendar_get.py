@@ -201,12 +201,15 @@ def get_lecture_next_regs(
 
         detailed_events = []
         for event in events:
+            logger.info(f"event in 204: {event}")
             start = event["start"].get("dateTime", event["start"].get("date"))
+            logger.info(f"start in 205: {start}")
             end = event["end"].get("dateTime", event["end"].get("date"))
             total_guests = int(
-                event["description"].split("Общее кол-во гостей")[0].split(":")[-1]
+                event["description"].split("Общее кол-во гостей")[1].split(":")[-1]
             )
             print(f"Total guests: {total_guests}")
+            logger.info(f"detailed_events in 210: {detailed_events}")
             detailed_events.append(
                 LectureSlot(
                     start=start,
@@ -215,7 +218,7 @@ def get_lecture_next_regs(
                     total_guests=total_guests,
                 )
             )
-        # logger.info(detailed_events)
+        logger.info(detailed_events)
         return detailed_events
     except HttpError as error:
         logger.error(f"An error occurred while fetching events: {error}")
@@ -354,13 +357,15 @@ def get_lecture_free_slots_for_a_day(
     free_hour_slots = [
         LectureSlot(
             start=hour.isoformat(),
-            end=(hour + datetime.timedelta(hours=1)).isoformat(),
+            end=(hour + datetime.timedelta(minutes=30)).isoformat(),
             name="Free lecture",
         )
         for hour in hours
         if hour.hour != 15 and hour.hour != 16
     ]
+    # logger.info(f"free_hour_slots: {free_hour_slots}")
     occupied = get_lecture_next_regs(day, commune)
+    logger.info(f"occupied: {occupied}")
     if occupied is None:
         return []
     free_slots = []
@@ -376,4 +381,5 @@ def get_lecture_free_slots_for_a_day(
             slot for slot in free_slots if slot.start >= "11:00:00"
         ]
 
+    logger.info(f"free_slots: {free_slots}")
     return free_slots

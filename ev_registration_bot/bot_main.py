@@ -239,7 +239,7 @@ async def choose_time_for_lecture(update: Update, context: ContextTypes.DEFAULT_
         )
         logger.error("Google auth error")
         return ConversationHandler.END
-    except ValueError as e:
+    except Exception as e:
         logger.error(e)
         await update.message.reply_text(
             "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
