@@ -13,6 +13,7 @@ from ev_registration_bot.google_calendar_helper.google_calendar_get import (
     Commune,
     OutOfTimeException,
     get_free_slots_for_a_day,
+    get_lecture_free_slots_for_a_day,
 )
 from telegram import (
     InlineKeyboardButton,
@@ -54,19 +55,22 @@ registration_amount_done: bool = False
 user_children_amount: int | None = None
 user_chosen_commune: str | None = None
 user_visit_type: str | None = None
+total_guests: int | None = None
 
 (
     CHOOSE_COMMUNE,
     CHOOSE_VISIT_TYPE,
     CHOOSE_DATE,
     CHOOSE_TIME,
+    CHOOSE_VISIT_DURATION,
+    CHOOSE_TIME_FOR_LECTURE,
     ARE_CHILDREN,
     CHILDREN_AMOUNT,
     REGISTER_NAME,
     REGISTER_AMOUNT,
     REGISTER_PHONE,
     MAKE_REGISTRATION,
-) = range(10)
+) = range(12)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -128,7 +132,7 @@ async def choose_commune(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_keyboard = [communes]
 
     await update.message.reply_text(
-        "Выберите коммуну\n\nНажмите /cancel чтобы выйти",
+        "Выберите коммуну\n\nЗдесь будет описание каждой коммуны\n\nНажмите /cancel чтобы выйти",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard,
         ),
@@ -180,7 +184,87 @@ async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ),
     )
 
-    return CHOOSE_TIME
+    if user_visit_type == VisitType.THERAPY:
+        return CHOOSE_TIME
+    return CHOOSE_VISIT_DURATION
+
+
+async def choose_visit_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+    global user_chosen_commune
+    day = user_message.split(".")[0]
+    month = user_message.split(".")[1]
+    year = user_message.split(".")[2]
+
+    global date
+    date = moscow_tz.localize(datetime.datetime(int(year), int(month), int(day))).date()
+
+    reply_keyboard = [["30 минут"], ["1 час"]]
+    await update.message.reply_text(
+        "Выберете длительность посещения",
+        reply_markup=ReplyKeyboardMarkup(
+            reply_keyboard,
+        ),
+    )
+    return CHOOSE_TIME_FOR_LECTURE
+
+
+async def choose_time_for_lecture(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_message = update.message.text
+    global date
+    global user_chosen_commune
+
+    try:
+        if user_message == "30 минут":
+            free_slots_for_a_day = get_lecture_free_half_an_hour_slots_for_a_day(
+                date, user_chosen_commune
+            )
+        elif user_message == "1 час":
+            free_slots_for_a_day = get_lecture_free_slots_for_a_day(
+                date, user_chosen_commune
+            )
+
+    except OutOfTimeException:
+        await update.message.reply_text(
+            "На выбранный день все занято. Пожалуйста, выберите другую дату",
+            reply_markup=ReplyKeyboardMarkup(
+                get_reply_keyboard(),
+            ),
+        )
+        return CHOOSE_DATE
+    except google.auth.exceptions.RefreshError:
+        await update.message.reply_text(
+            "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        logger.error("Google auth error")
+        return ConversationHandler.END
+    except ValueError as e:
+        logger.error(e)
+        await update.message.reply_text(
+            "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return ConversationHandler.END
+
+    if free_slots_for_a_day:
+
+        reply_keyboard = [
+            [
+                InlineKeyboardButton(
+                    f"{':'.join(slot.start.split('T')[1].split('+')[0].split(':')[:2])}-{':'.join(slot.end.split('T')[1].split('+')[0].split(':')[:2])} ({10 - slot.total_guests} мест)"
+                )
+            ]
+            for slot in free_slots_for_a_day
+        ]
+
+        await update.message.reply_text(
+            "Выберете время",
+            reply_markup=ReplyKeyboardMarkup(
+                reply_keyboard,
+            ),
+        )
+        return ARE_CHILDREN
 
 
 async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -247,9 +331,14 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def are_children(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
+    global user_visit_type
     try:
         chosen_start_time = user_message.split("-")[0]
-        chosen_end_time = user_message.split("-")[1]
+        if user_visit_type == VisitType.THERAPY:
+            chosen_end_time = user_message.split("-")[1]
+        else:
+            chosen_end_time = user_message.split("-")[1].split(" ")[0]
+        print(chosen_start_time, chosen_end_time)
     except IndexError:
         await update.message.reply_text(
             "Пожалуйста выберите из списка",
@@ -425,6 +514,7 @@ async def make_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 phone=registration_phone,
                 commune=user_chosen_commune,
                 visit_type=user_visit_type,
+                total_guests=registration_amount,
             )
         except (ValueError, AssertionError) as e:
             logger.error(f"An error occurred: {e}")
@@ -476,6 +566,12 @@ if __name__ == "__main__":
             ],
             CHOOSE_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_date)],
             CHOOSE_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_time)],
+            CHOOSE_VISIT_DURATION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, choose_visit_duration)
+            ],
+            CHOOSE_TIME_FOR_LECTURE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, choose_time_for_lecture)
+            ],
             ARE_CHILDREN: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, are_children)
             ],

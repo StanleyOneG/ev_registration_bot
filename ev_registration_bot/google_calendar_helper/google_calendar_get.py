@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from pydantic import BaseModel, Field
 
-from google_calendar_helper.utils import Commune
+from ev_registration_bot.google_calendar_helper.utils import Commune, VisitType
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -38,6 +38,19 @@ class Slot(BaseModel):
 
     def __eq__(self, other):
         if isinstance(other, Slot):
+            return self.start == other.start
+        return NotImplemented
+
+
+class LectureSlot(BaseModel):
+    start: str
+    end: str
+    name: str = Field(..., max_length=100)
+    description: str = Field(None, max_length=500)
+    total_guests: int = Field(0, ge=0, le=10)
+
+    def __eq__(self, other):
+        if isinstance(other, LectureSlot):
             return self.start == other.start
         return NotImplemented
 
@@ -68,7 +81,10 @@ def get_creds(commune: Commune) -> Credentials:
     return creds
 
 
-def get_regs_for_today(commune: Commune):
+def get_regs_for_today(
+    commune: Commune,
+    visit_type: VisitType = VisitType.THERAPY,
+):
     now = datetime.datetime.now(moscow_tz)
     if now.hour >= 21:
         raise OutOfTimeException("Out of time for today")
@@ -101,10 +117,106 @@ def get_regs_for_today(commune: Commune):
         for event in events:
             start = event["start"].get("dateTime", event["start"].get("date"))
             end = event["end"].get("dateTime", event["end"].get("date"))
-            detailed_events.append(Slot(start=start, end=end, name=event["summary"]))
-        # logger.info(detailed_events)
+            visit_type_str = (
+                event["description"].split("Тип посещения")[0].split(":")[-1]
+            )
+            if visit_type == VisitType.THERAPY and visit_type_str == "Терапия":
+                detailed_events.append(
+                    Slot(start=start, end=end, name=event["summary"])
+                )
+            elif visit_type == VisitType.LECTURE and visit_type_str == "Лекция":
+                detailed_events.append(
+                    LectureSlot(
+                        start=start,
+                        end=end,
+                        name=event["summary"],
+                        total_guests=(
+                            int(
+                                event["description"]
+                                .split("Общее кол-во гостей")[0]
+                                .split(":")[-1]
+                            )
+                            if visit_type_str == "Лекция"
+                            else 0
+                        ),
+                    )
+                )
+        logger.info(detailed_events)
         return detailed_events
 
+    except HttpError as error:
+        logger.error(f"An error occurred while fetching events: {error}")
+
+
+def get_lecture_next_regs(
+    day: datetime.datetime, commune: Commune
+) -> list | list[LectureSlot] | None:
+    now = datetime.datetime.now(moscow_tz)
+    if day == now.date():
+        return get_regs_for_today(commune, VisitType.LECTURE)
+
+    start_of_day = moscow_tz.localize(
+        datetime.datetime(
+            day.year,
+            day.month,
+            day.day,
+            11,
+            0,
+            0,
+            0,
+        )
+    )
+    end_of_day = moscow_tz.localize(
+        datetime.datetime(
+            day.year,
+            day.month,
+            day.day,
+            21,
+            0,
+            0,
+            0,
+        )
+    )
+
+    creds = get_creds(commune)
+
+    try:
+        service = build("calendar", "v3", credentials=creds)
+
+        events_result: dict = (
+            service.events()
+            .list(
+                calendarId="primary",
+                timeMin=start_of_day.isoformat(),
+                timeMax=end_of_day.isoformat(),
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+        events: list = events_result.get("items", [])
+
+        if not events:
+            return []
+
+        detailed_events = []
+        for event in events:
+            start = event["start"].get("dateTime", event["start"].get("date"))
+            end = event["end"].get("dateTime", event["end"].get("date"))
+            total_guests = int(
+                event["description"].split("Общее кол-во гостей")[0].split(":")[-1]
+            )
+            print(f"Total guests: {total_guests}")
+            detailed_events.append(
+                LectureSlot(
+                    start=start,
+                    end=end,
+                    name=event["summary"],
+                    total_guests=total_guests,
+                )
+            )
+        # logger.info(detailed_events)
+        return detailed_events
     except HttpError as error:
         logger.error(f"An error occurred while fetching events: {error}")
 
@@ -218,4 +330,50 @@ def get_free_slots_for_a_day(
         ]
 
     # logger.info(free_slots)
+    return free_slots
+
+
+def get_lecture_free_slots_for_a_day(
+    day: datetime.datetime,
+    commune: Commune,
+) -> list | list[LectureSlot]:
+    hours = [
+        moscow_tz.localize(
+            datetime.datetime(
+                day.year,
+                day.month,
+                day.day,
+                i,
+                0,
+                0,
+                0,
+            )
+        )
+        for i in range(11, 21)
+    ]
+    free_hour_slots = [
+        LectureSlot(
+            start=hour.isoformat(),
+            end=(hour + datetime.timedelta(hours=1)).isoformat(),
+            name="Free lecture",
+        )
+        for hour in hours
+        if hour.hour != 15 and hour.hour != 16
+    ]
+    occupied = get_lecture_next_regs(day, commune)
+    if occupied is None:
+        return []
+    free_slots = []
+    for free_slot in free_hour_slots:
+        free_slots.append(free_slot)
+    now = datetime.datetime.now(moscow_tz)
+    if day == now.date():
+        free_slots: list[LectureSlot] = [
+            slot for slot in free_slots if slot.start >= now.isoformat()
+        ]
+    else:
+        free_slots: list[LectureSlot] = [
+            slot for slot in free_slots if slot.start >= "11:00:00"
+        ]
+
     return free_slots

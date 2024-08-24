@@ -3,7 +3,11 @@ import os.path
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_calendar_helper.utils import Commune, VisitType, get_visit_type_color
+from ev_registration_bot.google_calendar_helper.utils import (
+    Commune,
+    VisitType,
+    get_visit_type_color,
+)
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -35,7 +39,10 @@ def get_credentials(commune: Commune):
 
 
 def make_description_in_calendar(
-    children_amount: int, phone: str, visit_type: VisitType
+    children_amount: int,
+    phone: str,
+    visit_type: VisitType,
+    total_guests: int | None = None,
 ):
     text = (
         f"Тип посещения: {'Терапия' if visit_type.name == VisitType.THERAPY.name else 'Лекция'}\n\n"
@@ -43,6 +50,8 @@ def make_description_in_calendar(
         f"Тел.: {phone}\n\n"
         f"Telegram-bot"
     )
+    if total_guests and visit_type.name == VisitType.LECTURE.name:
+        text += f"\n\n(не редактировать) Общее кол-во гостей: {total_guests}"
 
     return text
 
@@ -55,6 +64,7 @@ def create_event(
     phone: str,
     commune: Commune,
     visit_type: VisitType,
+    total_guests: int | None = None,
 ) -> bool:
     creds = get_credentials(commune)
     service = build("calendar", "v3", credentials=creds)
@@ -69,6 +79,7 @@ def create_event(
                 children_amount,
                 phone,
                 visit_type,
+                total_guests,
             ),
             "colorId": str(get_visit_type_color(visit_type, commune)),
         }
