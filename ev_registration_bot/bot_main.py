@@ -353,6 +353,9 @@ async def are_children(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chosen_end_time = user_message.split("-")[1]
         else:
             chosen_end_time = user_message.split("-")[1].split(" ")[0]
+            # Store the available places from the message
+            global available_places
+            available_places = int(user_message.split("(")[1].split(" ")[0])
         print(chosen_start_time, chosen_end_time)
     except IndexError:
         await update.message.reply_text(
@@ -440,13 +443,23 @@ async def register_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         global registration_name
         registration_name = user_message
 
-        reply_keyboard = [
-            ["1"],
-            ["2"],
-            ["3"],
-            ["4"],
-            ["5"],
-        ]
+        # For lecture visits, show only the available number of places
+        if user_visit_type == VisitType.LECTURE:
+            reply_keyboard = [[str(i)] for i in range(1, min(6, available_places + 1))]
+            if not reply_keyboard:
+                await update.message.reply_text(
+                    "К сожалению, на выбранное время не осталось свободных мест.\n\nЧтобы записаться повторно нажмите /start",
+                    reply_markup=ReplyKeyboardRemove(),
+                )
+                return ConversationHandler.END
+        else:
+            reply_keyboard = [
+                ["1"],
+                ["2"],
+                ["3"],
+                ["4"],
+                ["5"],
+            ]
 
         await update.message.reply_text(
             "Сколько всего человек придет на посещение включая Вас?\n\nВыберите из списка:",
@@ -477,6 +490,20 @@ async def register_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await update.message.reply_text(
                         "Количество не должно превышать 5 человек\n\nПожалуйста выберите из списка:",
                     )
+                    return REGISTER_PHONE
+
+                # For lecture visits, check if the requested number of guests exceeds available places
+                if (
+                    user_visit_type == VisitType.LECTURE
+                    and registration_amount > available_places
+                ):
+                    await update.message.reply_text(
+                        f"К сожалению, на выбранное время осталось только {available_places} мест.\n\nПожалуйста выберите меньшее количество человек:",
+                        reply_markup=ReplyKeyboardMarkup(
+                            [[str(i)] for i in range(1, available_places + 1)]
+                        ),
+                    )
+                    registration_amount_done = False
                     return REGISTER_PHONE
             except ValueError:
                 await update.message.reply_text(

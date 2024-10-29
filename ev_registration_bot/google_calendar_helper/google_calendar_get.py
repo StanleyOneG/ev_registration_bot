@@ -262,15 +262,74 @@ def get_lecture_free_slots_for_a_day(
         if has_therapy:
             continue
 
-        # Check for existing lecture bookings
-        for lecture in lecture_visits:
+        # Find all overlapping lecture slots
+        overlapping_lectures = [
+            lecture
+            for lecture in lecture_visits
             if (
                 free_slot.start <= lecture.start < free_slot.end
                 or free_slot.start < lecture.end <= free_slot.end
                 or (lecture.start <= free_slot.start and lecture.end >= free_slot.end)
-            ):
-                free_slot.total_guests = lecture.total_guests
-                break
+            )
+        ]
+
+        # Calculate total guests from all overlapping slots
+        if overlapping_lectures:
+            # Group overlapping lectures by their time slots
+            time_slots = {}
+            for lecture in overlapping_lectures:
+                slot_key = (lecture.start, lecture.end)
+                if slot_key in time_slots:
+                    time_slots[slot_key] += lecture.total_guests
+                else:
+                    time_slots[slot_key] = lecture.total_guests
+
+            # For each half hour within the hour slot, sum up all overlapping guests
+            total_guests = 0
+            slot_start = datetime.datetime.fromisoformat(free_slot.start)
+            slot_end = datetime.datetime.fromisoformat(free_slot.end)
+
+            # Check first half hour
+            first_half_guests = sum(
+                guests
+                for (start, end), guests in time_slots.items()
+                if (
+                    datetime.datetime.fromisoformat(start)
+                    <= slot_start
+                    < datetime.datetime.fromisoformat(end)
+                    or slot_start
+                    < datetime.datetime.fromisoformat(end)
+                    <= slot_start + datetime.timedelta(minutes=30)
+                    or (
+                        datetime.datetime.fromisoformat(start) <= slot_start
+                        and datetime.datetime.fromisoformat(end)
+                        >= slot_start + datetime.timedelta(minutes=30)
+                    )
+                )
+            )
+
+            # Check second half hour
+            second_half_guests = sum(
+                guests
+                for (start, end), guests in time_slots.items()
+                if (
+                    datetime.datetime.fromisoformat(start)
+                    <= slot_start + datetime.timedelta(minutes=30)
+                    < datetime.datetime.fromisoformat(end)
+                    or slot_start + datetime.timedelta(minutes=30)
+                    < datetime.datetime.fromisoformat(end)
+                    <= slot_end
+                    or (
+                        datetime.datetime.fromisoformat(start)
+                        <= slot_start + datetime.timedelta(minutes=30)
+                        and datetime.datetime.fromisoformat(end) >= slot_end
+                    )
+                )
+            )
+
+            # Take the maximum number of guests from either half hour
+            total_guests = max(first_half_guests, second_half_guests)
+            free_slot.total_guests = total_guests
 
         available_slots.append(free_slot)
 
@@ -346,16 +405,23 @@ def get_lecture_free_half_an_hour_slots_for_a_day(
         if has_therapy:
             continue
 
-        # Check for existing lecture bookings
-        for lecture in lecture_visits:
+        # Find all overlapping lecture slots
+        overlapping_lectures = [
+            lecture
+            for lecture in lecture_visits
             if (
                 free_slot.start <= lecture.start < free_slot.end
                 or free_slot.start < lecture.end <= free_slot.end
                 or (lecture.start <= free_slot.start and lecture.end >= free_slot.end)
-            ):
-                free_slot.total_guests = lecture.total_guests
-                break
+            )
+        ]
 
+        # Calculate total guests from all overlapping slots
+        total_guests = 0
+        for lecture in overlapping_lectures:
+            total_guests += lecture.total_guests
+
+        free_slot.total_guests = total_guests
         available_slots.append(free_slot)
 
     now = datetime.datetime.now(moscow_tz)
