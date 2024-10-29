@@ -30,3 +30,10 @@ def get_visit_type_color(
         return 7
 
     return 1
+
+
+def get_commune_guest_limit(commune: Commune) -> int:
+    """Get the maximum number of guests allowed for a lecture in a commune."""
+    if commune.name == Commune.AMERICAN.name:
+        return 10  # American commune can have up to 10 guests
+    return 8  # German commune can have up to 8 guests

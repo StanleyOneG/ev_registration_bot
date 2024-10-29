@@ -7,6 +7,7 @@ from ev_registration_bot.google_calendar_helper.utils import (
     Commune,
     VisitType,
     get_visit_type_color,
+    get_commune_guest_limit,
 )
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -29,11 +30,6 @@ def get_credentials(commune: Commune):
             creds.refresh(Request())
         else:
             raise ValueError("Invalid credentials")
-
-        #     flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-        #     creds = flow.run_local_server(port=0)
-        # with open("token.json", "w") as token:
-        #     token.write(creds.to_json())
 
     return creds
 
@@ -68,6 +64,13 @@ def create_event(
 ) -> bool:
     creds = get_credentials(commune)
     service = build("calendar", "v3", credentials=creds)
+
+    # Check guest limit for lectures
+    if visit_type == VisitType.LECTURE and total_guests:
+        guest_limit = get_commune_guest_limit(commune)
+        if total_guests > guest_limit:
+            logger.error(f"Total guests {total_guests} exceeds limit {guest_limit}")
+            return False
 
     try:
         event = {

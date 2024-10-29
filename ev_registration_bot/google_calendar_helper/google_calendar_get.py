@@ -67,18 +67,26 @@ def get_creds(commune: Commune) -> Credentials:
             f"{commune.value}/token.json", SCOPES
         )
     if not creds or not creds.valid:
-
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
             raise ValueError("Invalid credentials")
 
-        #     flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
-        #     creds = flow.run_local_server(port=0)
-        # with open(f"{commune.value}/token.json", "w") as token:
-        #     token.write(creds.to_json())
-
     return creds
+
+
+def extract_total_guests(description: str) -> int:
+    """Extract total guests from event description."""
+    try:
+        if "(не редактировать) Общее кол-во гостей:" in description:
+            guests_str = description.split("(не редактировать) Общее кол-во гостей:")[
+                -1
+            ].strip()
+            return int(guests_str)
+        return 0
+    except (ValueError, IndexError):
+        logger.error(f"Failed to extract total guests from description: {description}")
+        return 0
 
 
 def get_regs_for_today(
@@ -117,28 +125,23 @@ def get_regs_for_today(
         for event in events:
             start = event["start"].get("dateTime", event["start"].get("date"))
             end = event["end"].get("dateTime", event["end"].get("date"))
+            description = event.get("description", "")
             visit_type_str = (
-                event["description"].split("Тип посещения")[0].split(":")[-1]
+                description.split("Тип посещения:")[1].split("\n")[0].strip()
             )
+
             if visit_type == VisitType.THERAPY and visit_type_str == "Терапия":
                 detailed_events.append(
                     Slot(start=start, end=end, name=event["summary"])
                 )
             elif visit_type == VisitType.LECTURE and visit_type_str == "Лекция":
+                total_guests = extract_total_guests(description)
                 detailed_events.append(
                     LectureSlot(
                         start=start,
                         end=end,
                         name=event["summary"],
-                        total_guests=(
-                            int(
-                                event["description"]
-                                .split("Общее кол-во гостей")[0]
-                                .split(":")[-1]
-                            )
-                            if visit_type_str == "Лекция"
-                            else 0
-                        ),
+                        total_guests=total_guests,
                     )
                 )
         logger.info(detailed_events)
@@ -201,15 +204,11 @@ def get_lecture_next_regs(
 
         detailed_events = []
         for event in events:
-            logger.info(f"event in 204: {event}")
             start = event["start"].get("dateTime", event["start"].get("date"))
-            logger.info(f"start in 205: {start}")
             end = event["end"].get("dateTime", event["end"].get("date"))
-            total_guests = int(
-                event["description"].split("Общее кол-во гостей")[1].split(":")[-1]
-            )
-            print(f"Total guests: {total_guests}")
-            logger.info(f"detailed_events in 210: {detailed_events}")
+            description = event.get("description", "")
+            total_guests = extract_total_guests(description)
+
             detailed_events.append(
                 LectureSlot(
                     start=start,
@@ -278,7 +277,6 @@ def get_next_regs(day: datetime.datetime, commune: Commune) -> list | list[Slot]
             start = event["start"].get("dateTime", event["start"].get("date"))
             end = event["end"].get("dateTime", event["end"].get("date"))
             detailed_events.append(Slot(start=start, end=end, name=event["summary"]))
-        # logger.info(detailed_events)
         return detailed_events
     except HttpError as error:
         logger.error(f"An error occurred while fetching events: {error}")
@@ -332,7 +330,6 @@ def get_free_slots_for_a_day(
             slot for slot in free_slots if slot.start >= "11:00:00"
         ]
 
-    # logger.info(free_slots)
     return free_slots
 
 
@@ -340,6 +337,7 @@ def get_lecture_free_slots_for_a_day(
     day: datetime.datetime,
     commune: Commune,
 ) -> list | list[LectureSlot]:
+    """Get free 1-hour slots for lectures."""
     hours = [
         moscow_tz.localize(
             datetime.datetime(
@@ -357,29 +355,121 @@ def get_lecture_free_slots_for_a_day(
     free_hour_slots = [
         LectureSlot(
             start=hour.isoformat(),
-            end=(hour + datetime.timedelta(minutes=30)).isoformat(),
+            end=(hour + datetime.timedelta(hours=1)).isoformat(),
             name="Free lecture",
+            total_guests=0,
         )
         for hour in hours
         if hour.hour != 15 and hour.hour != 16
     ]
-    # logger.info(f"free_hour_slots: {free_hour_slots}")
+
     occupied = get_lecture_next_regs(day, commune)
     logger.info(f"occupied: {occupied}")
     if occupied is None:
         return []
-    free_slots = []
+
+    available_slots = []
     for free_slot in free_hour_slots:
-        free_slots.append(free_slot)
+        # Check if the slot overlaps with any occupied slots
+        slot_occupied = False
+        for occ_slot in occupied:
+            if (
+                free_slot.start <= occ_slot.start < free_slot.end
+                or free_slot.start < occ_slot.end <= free_slot.end
+                or (occ_slot.start <= free_slot.start and occ_slot.end >= free_slot.end)
+            ):
+                slot_occupied = True
+                free_slot.total_guests = occ_slot.total_guests
+                break
+        if not slot_occupied:
+            available_slots.append(free_slot)
+        elif free_slot.total_guests > 0:  # If slot is partially occupied
+            available_slots.append(free_slot)
+
     now = datetime.datetime.now(moscow_tz)
     if day == now.date():
-        free_slots: list[LectureSlot] = [
-            slot for slot in free_slots if slot.start >= now.isoformat()
+        available_slots = [
+            slot for slot in available_slots if slot.start >= now.isoformat()
         ]
     else:
-        free_slots: list[LectureSlot] = [
-            slot for slot in free_slots if slot.start >= "11:00:00"
-        ]
+        available_slots = [slot for slot in available_slots if slot.start >= "11:00:00"]
 
-    logger.info(f"free_slots: {free_slots}")
-    return free_slots
+    return available_slots
+
+
+def get_lecture_free_half_an_hour_slots_for_a_day(
+    day: datetime.datetime,
+    commune: Commune,
+) -> list | list[LectureSlot]:
+    """Get free 30-minute slots for lectures."""
+    hours = [
+        moscow_tz.localize(
+            datetime.datetime(
+                day.year,
+                day.month,
+                day.day,
+                i,
+                0,
+                0,
+                0,
+            )
+        )
+        for i in range(11, 21)
+    ]
+
+    # Create slots for both XX:00 and XX:30
+    free_slots = []
+    for hour in hours:
+        if hour.hour != 15 and hour.hour != 16:
+            # Add slot for the first half hour (XX:00-XX:30)
+            free_slots.append(
+                LectureSlot(
+                    start=hour.isoformat(),
+                    end=(hour + datetime.timedelta(minutes=30)).isoformat(),
+                    name="Free lecture",
+                    total_guests=0,
+                )
+            )
+            # Add slot for the second half hour (XX:30-XX+1:00)
+            half_hour = hour + datetime.timedelta(minutes=30)
+            free_slots.append(
+                LectureSlot(
+                    start=half_hour.isoformat(),
+                    end=(half_hour + datetime.timedelta(minutes=30)).isoformat(),
+                    name="Free lecture",
+                    total_guests=0,
+                )
+            )
+
+    occupied = get_lecture_next_regs(day, commune)
+    logger.info(f"occupied: {occupied}")
+    if occupied is None:
+        return []
+
+    available_slots = []
+    for free_slot in free_slots:
+        # Check if the slot overlaps with any occupied slots
+        slot_occupied = False
+        for occ_slot in occupied:
+            if (
+                free_slot.start <= occ_slot.start < free_slot.end
+                or free_slot.start < occ_slot.end <= free_slot.end
+                or (occ_slot.start <= free_slot.start and occ_slot.end >= free_slot.end)
+            ):
+                slot_occupied = True
+                free_slot.total_guests = occ_slot.total_guests
+                break
+        if not slot_occupied:
+            available_slots.append(free_slot)
+        elif free_slot.total_guests > 0:  # If slot is partially occupied
+            available_slots.append(free_slot)
+
+    now = datetime.datetime.now(moscow_tz)
+    if day == now.date():
+        available_slots = [
+            slot for slot in available_slots if slot.start >= now.isoformat()
+        ]
+    else:
+        available_slots = [slot for slot in available_slots if slot.start >= "11:00:00"]
+
+    return available_slots

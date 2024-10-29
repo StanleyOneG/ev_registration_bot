@@ -5,7 +5,10 @@ import re
 
 import pytz
 from ev_registration_bot.config import get_settings
-from ev_registration_bot.google_calendar_helper.utils import VisitType
+from ev_registration_bot.google_calendar_helper.utils import (
+    VisitType,
+    get_commune_guest_limit,
+)
 from ev_registration_bot.google_calendar_helper.google_calendar_create import (
     create_event,
 )
@@ -14,6 +17,7 @@ from ev_registration_bot.google_calendar_helper.google_calendar_get import (
     OutOfTimeException,
     get_free_slots_for_a_day,
     get_lecture_free_slots_for_a_day,
+    get_lecture_free_half_an_hour_slots_for_a_day,
 )
 from telegram import (
     InlineKeyboardButton,
@@ -56,6 +60,7 @@ user_children_amount: int | None = None
 user_chosen_commune: str | None = None
 user_visit_type: str | None = None
 total_guests: int | None = None
+visit_duration: str | None = None
 
 (
     CHOOSE_COMMUNE,
@@ -85,6 +90,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_chosen_commune = None
     global user_visit_type
     user_visit_type = None
+    global visit_duration
+    visit_duration = None
     # reset other global variables
 
     reply_keyboard = [["Зарегистрироваться"]]
@@ -209,6 +216,8 @@ async def choose_time_for_lecture(update: Update, context: ContextTypes.DEFAULT_
     user_message = update.message.text
     global date
     global user_chosen_commune
+    global visit_duration
+    visit_duration = user_message
 
     try:
         if user_message == "30 минут":
@@ -219,6 +228,9 @@ async def choose_time_for_lecture(update: Update, context: ContextTypes.DEFAULT_
             free_slots_for_a_day = get_lecture_free_slots_for_a_day(
                 date, user_chosen_commune
             )
+        else:
+            await update.message.reply_text("Пожалуйста выберите из списка")
+            return CHOOSE_TIME_FOR_LECTURE
 
     except OutOfTimeException:
         await update.message.reply_text(
@@ -244,15 +256,25 @@ async def choose_time_for_lecture(update: Update, context: ContextTypes.DEFAULT_
         return ConversationHandler.END
 
     if free_slots_for_a_day:
-
+        guest_limit = get_commune_guest_limit(user_chosen_commune)
         reply_keyboard = [
             [
                 InlineKeyboardButton(
-                    f"{':'.join(slot.start.split('T')[1].split('+')[0].split(':')[:2])}-{':'.join(slot.end.split('T')[1].split('+')[0].split(':')[:2])} ({10 - slot.total_guests} мест)"
+                    f"{':'.join(slot.start.split('T')[1].split('+')[0].split(':')[:2])}-{':'.join(slot.end.split('T')[1].split('+')[0].split(':')[:2])} ({guest_limit - slot.total_guests} мест)"
                 )
             ]
             for slot in free_slots_for_a_day
+            if slot.total_guests < guest_limit
         ]
+
+        if not reply_keyboard:
+            await update.message.reply_text(
+                "На выбранный день все места заняты. Пожалуйста, выберите другую дату",
+                reply_markup=ReplyKeyboardMarkup(
+                    get_reply_keyboard(),
+                ),
+            )
+            return CHOOSE_DATE
 
         await update.message.reply_text(
             "Выберете время",
@@ -304,7 +326,6 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     if free_slots_for_a_day:
-
         reply_keyboard = [
             [
                 InlineKeyboardButton(
@@ -313,8 +334,6 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             for slot in free_slots_for_a_day
         ]
-
-        # reply_keyboard = [slots_time]
 
         await update.message.reply_text(
             "Выберете время",
