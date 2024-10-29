@@ -105,24 +105,20 @@ def get_reply_keyboard():
     day_after_tomorrow = today + datetime.timedelta(days=2)
     two_days_after_tomorrow = today + datetime.timedelta(days=3)
 
-    if now.hour < 21:
+    def format_date(date):
+        return f"{date.day}.{date.month:02d}.{date.year}"
 
+    if now.hour < 21:
         reply_keyboard = [
-            [f"{today.day}.0{today.month}.{today.year}"],
-            [f"{tomorrow.day}.0{tomorrow.month}.{tomorrow.year}"],
-            [
-                f"{day_after_tomorrow.day}.0{day_after_tomorrow.month}.{day_after_tomorrow.year}"
-            ],
+            [format_date(today)],
+            [format_date(tomorrow)],
+            [format_date(day_after_tomorrow)],
         ]
     else:
         reply_keyboard = [
-            [f"{tomorrow.day}.0{tomorrow.month}.{tomorrow.year}"],
-            [
-                f"{day_after_tomorrow.day}.0{day_after_tomorrow.month}.{day_after_tomorrow.year}"
-            ],
-            [
-                f"{two_days_after_tomorrow.day}.0{two_days_after_tomorrow.month}.{two_days_after_tomorrow.year}"
-            ],
+            [format_date(tomorrow)],
+            [format_date(day_after_tomorrow)],
+            [format_date(two_days_after_tomorrow)],
         ]
 
     return reply_keyboard
@@ -347,12 +343,12 @@ async def are_children(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     global chosen_start_time_str
     chosen_start_time_str = (
-        f"{date.year}-0{date.month}-{date.day}T{chosen_start_time}:00+03:00"
+        f"{date.year}-{date.month:02d}-{date.day}T{chosen_start_time}:00+03:00"
     )
 
     global chosen_end_time_str
     chosen_end_time_str = (
-        f"{date.year}-0{date.month}-{date.day}T{chosen_end_time}:00+03:00"
+        f"{date.year}-{date.month:02d}-{date.day}T{chosen_end_time}:00+03:00"
     )
 
     reply_keyboard = [["Да", "Нет"]]
