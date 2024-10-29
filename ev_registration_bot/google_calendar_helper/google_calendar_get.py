@@ -199,11 +199,32 @@ def get_free_slots_for_a_day(
         if hour.hour != 15 and hour.hour != 16
     ]
 
-    therapy_visits, _ = get_events_for_day(day, commune)
+    therapy_visits, lecture_visits = get_events_for_day(day, commune)
 
     free_slots = []
     for free_slot in free_hour_slots:
-        if free_slot not in therapy_visits:
+        # Check for therapy visit conflicts
+        has_therapy = any(
+            (
+                free_slot.start <= therapy.start < free_slot.end
+                or free_slot.start < therapy.end <= free_slot.end
+                or (therapy.start <= free_slot.start and therapy.end >= free_slot.end)
+            )
+            for therapy in therapy_visits
+        )
+
+        # Check for lecture visit conflicts
+        has_lecture = any(
+            (
+                free_slot.start <= lecture.start < free_slot.end
+                or free_slot.start < lecture.end <= free_slot.end
+                or (lecture.start <= free_slot.start and lecture.end >= free_slot.end)
+            )
+            for lecture in lecture_visits
+        )
+
+        # Only add the slot if there are no conflicts with either therapy or lecture visits
+        if not has_therapy and not has_lecture:
             free_slots.append(free_slot)
 
     now = datetime.datetime.now(moscow_tz)
