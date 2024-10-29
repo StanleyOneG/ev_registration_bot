@@ -89,54 +89,72 @@ def extract_total_guests(description: str) -> int:
         return 0
 
 
-def get_regs_for_today(
+def get_events_for_day(
+    day: datetime.datetime,
     commune: Commune,
-    visit_type: VisitType = VisitType.THERAPY,
-):
+) -> tuple[list[Slot], list[LectureSlot]]:
+    """Get all events for a specific day, separated by type."""
     now = datetime.datetime.now(moscow_tz)
-    if now.hour >= 21:
-        raise OutOfTimeException("Out of time for today")
 
-    end_of_today = now.replace(hour=21, minute=0, second=0, microsecond=0)
-    end_of_today_iso = end_of_today.isoformat()
+    if day == now.date():
+        if now.hour >= 21:
+            raise OutOfTimeException("Out of time for today")
+        start_time = now
+    else:
+        start_time = moscow_tz.localize(
+            datetime.datetime(
+                day.year,
+                day.month,
+                day.day,
+                11,
+                0,
+                0,
+                0,
+            )
+        )
+
+    end_time = moscow_tz.localize(
+        datetime.datetime(
+            day.year,
+            day.month,
+            day.day,
+            21,
+            0,
+            0,
+            0,
+        )
+    )
+
     creds = get_creds(commune)
+    service = build("calendar", "v3", credentials=creds)
 
     try:
-        service = build("calendar", "v3", credentials=creds)
-
-        events_result: dict = (
+        events_result = (
             service.events()
             .list(
                 calendarId="primary",
-                timeMin=now.isoformat(),
-                timeMax=end_of_today_iso,
+                timeMin=start_time.isoformat(),
+                timeMax=end_time.isoformat(),
                 singleEvents=True,
                 orderBy="startTime",
             )
             .execute()
         )
-        events: list = events_result.get("items", [])
 
-        if not events:
-            print("No upcoming events found.")
-            return []
+        events = events_result.get("items", [])
+        therapy_visits = []
+        lecture_visits = []
 
-        detailed_events = []
         for event in events:
             start = event["start"].get("dateTime", event["start"].get("date"))
             end = event["end"].get("dateTime", event["end"].get("date"))
             description = event.get("description", "")
-            visit_type_str = (
-                description.split("Тип посещения:")[1].split("\n")[0].strip()
-            )
 
-            if visit_type == VisitType.THERAPY and visit_type_str == "Терапия":
-                detailed_events.append(
-                    Slot(start=start, end=end, name=event["summary"])
-                )
-            elif visit_type == VisitType.LECTURE and visit_type_str == "Лекция":
+            if "Тип посещения: Терапия" in description:
+                therapy_visits.append(Slot(start=start, end=end, name=event["summary"]))
+            elif "Тип посещения: Лекция" in description:
                 total_guests = extract_total_guests(description)
-                detailed_events.append(
+                lecture_visits.append(
                     LectureSlot(
                         start=start,
                         end=end,
@@ -144,148 +162,18 @@ def get_regs_for_today(
                         total_guests=total_guests,
                     )
                 )
-        logger.info(detailed_events)
-        return detailed_events
 
+        return therapy_visits, lecture_visits
     except HttpError as error:
         logger.error(f"An error occurred while fetching events: {error}")
-
-
-def get_lecture_next_regs(
-    day: datetime.datetime, commune: Commune
-) -> list | list[LectureSlot] | None:
-    now = datetime.datetime.now(moscow_tz)
-    if day == now.date():
-        return get_regs_for_today(commune, VisitType.LECTURE)
-
-    start_of_day = moscow_tz.localize(
-        datetime.datetime(
-            day.year,
-            day.month,
-            day.day,
-            11,
-            0,
-            0,
-            0,
-        )
-    )
-    end_of_day = moscow_tz.localize(
-        datetime.datetime(
-            day.year,
-            day.month,
-            day.day,
-            21,
-            0,
-            0,
-            0,
-        )
-    )
-
-    creds = get_creds(commune)
-
-    try:
-        service = build("calendar", "v3", credentials=creds)
-
-        events_result: dict = (
-            service.events()
-            .list(
-                calendarId="primary",
-                timeMin=start_of_day.isoformat(),
-                timeMax=end_of_day.isoformat(),
-                singleEvents=True,
-                orderBy="startTime",
-            )
-            .execute()
-        )
-        events: list = events_result.get("items", [])
-
-        if not events:
-            return []
-
-        detailed_events = []
-        for event in events:
-            start = event["start"].get("dateTime", event["start"].get("date"))
-            end = event["end"].get("dateTime", event["end"].get("date"))
-            description = event.get("description", "")
-            total_guests = extract_total_guests(description)
-
-            detailed_events.append(
-                LectureSlot(
-                    start=start,
-                    end=end,
-                    name=event["summary"],
-                    total_guests=total_guests,
-                )
-            )
-        logger.info(detailed_events)
-        return detailed_events
-    except HttpError as error:
-        logger.error(f"An error occurred while fetching events: {error}")
-
-
-def get_next_regs(day: datetime.datetime, commune: Commune) -> list | list[Slot] | None:
-    now = datetime.datetime.now(moscow_tz)
-    if day == now.date():
-        return get_regs_for_today(commune)
-
-    start_of_day = moscow_tz.localize(
-        datetime.datetime(
-            day.year,
-            day.month,
-            day.day,
-            11,
-            0,
-            0,
-            0,
-        )
-    )
-    end_of_day = moscow_tz.localize(
-        datetime.datetime(
-            day.year,
-            day.month,
-            day.day,
-            21,
-            0,
-            0,
-            0,
-        )
-    )
-
-    creds = get_creds(commune)
-
-    try:
-        service = build("calendar", "v3", credentials=creds)
-
-        events_result: dict = (
-            service.events()
-            .list(
-                calendarId="primary",
-                timeMin=start_of_day.isoformat(),
-                timeMax=end_of_day.isoformat(),
-                singleEvents=True,
-                orderBy="startTime",
-            )
-            .execute()
-        )
-        events: list = events_result.get("items", [])
-
-        if not events:
-            return []
-
-        detailed_events = []
-        for event in events:
-            start = event["start"].get("dateTime", event["start"].get("date"))
-            end = event["end"].get("dateTime", event["end"].get("date"))
-            detailed_events.append(Slot(start=start, end=end, name=event["summary"]))
-        return detailed_events
-    except HttpError as error:
-        logger.error(f"An error occurred while fetching events: {error}")
+        return [], []
 
 
 def get_free_slots_for_a_day(
     day: datetime.datetime,
     commune: Commune,
-) -> list | list[Slot]:
+) -> list[Slot]:
+    """Get free slots for therapy visits."""
     hours = [
         moscow_tz.localize(
             datetime.datetime(
@@ -311,24 +199,18 @@ def get_free_slots_for_a_day(
         if hour.hour != 15 and hour.hour != 16
     ]
 
-    occupied = get_next_regs(day, commune)
+    therapy_visits, _ = get_events_for_day(day, commune)
 
-    if occupied is None:
-        return []
     free_slots = []
     for free_slot in free_hour_slots:
-        if free_slot not in occupied:
+        if free_slot not in therapy_visits:
             free_slots.append(free_slot)
-    now = datetime.datetime.now(moscow_tz)
 
+    now = datetime.datetime.now(moscow_tz)
     if day == now.date():
-        free_slots: list[Slot] = [
-            slot for slot in free_slots if slot.start >= now.isoformat()
-        ]
+        free_slots = [slot for slot in free_slots if slot.start >= now.isoformat()]
     else:
-        free_slots: list[Slot] = [
-            slot for slot in free_slots if slot.start >= "11:00:00"
-        ]
+        free_slots = [slot for slot in free_slots if slot.start >= "11:00:00"]
 
     return free_slots
 
@@ -336,7 +218,7 @@ def get_free_slots_for_a_day(
 def get_lecture_free_slots_for_a_day(
     day: datetime.datetime,
     commune: Commune,
-) -> list | list[LectureSlot]:
+) -> list[LectureSlot]:
     """Get free 1-hour slots for lectures."""
     hours = [
         moscow_tz.localize(
@@ -363,28 +245,34 @@ def get_lecture_free_slots_for_a_day(
         if hour.hour != 15 and hour.hour != 16
     ]
 
-    occupied = get_lecture_next_regs(day, commune)
-    logger.info(f"occupied: {occupied}")
-    if occupied is None:
-        return []
+    therapy_visits, lecture_visits = get_events_for_day(day, commune)
 
     available_slots = []
     for free_slot in free_hour_slots:
-        # Check if the slot overlaps with any occupied slots
-        slot_occupied = False
-        for occ_slot in occupied:
+        # Check for therapy visit conflicts
+        has_therapy = any(
+            (
+                free_slot.start <= therapy.start < free_slot.end
+                or free_slot.start < therapy.end <= free_slot.end
+                or (therapy.start <= free_slot.start and therapy.end >= free_slot.end)
+            )
+            for therapy in therapy_visits
+        )
+
+        if has_therapy:
+            continue
+
+        # Check for existing lecture bookings
+        for lecture in lecture_visits:
             if (
-                free_slot.start <= occ_slot.start < free_slot.end
-                or free_slot.start < occ_slot.end <= free_slot.end
-                or (occ_slot.start <= free_slot.start and occ_slot.end >= free_slot.end)
+                free_slot.start <= lecture.start < free_slot.end
+                or free_slot.start < lecture.end <= free_slot.end
+                or (lecture.start <= free_slot.start and lecture.end >= free_slot.end)
             ):
-                slot_occupied = True
-                free_slot.total_guests = occ_slot.total_guests
+                free_slot.total_guests = lecture.total_guests
                 break
-        if not slot_occupied:
-            available_slots.append(free_slot)
-        elif free_slot.total_guests > 0:  # If slot is partially occupied
-            available_slots.append(free_slot)
+
+        available_slots.append(free_slot)
 
     now = datetime.datetime.now(moscow_tz)
     if day == now.date():
@@ -400,7 +288,7 @@ def get_lecture_free_slots_for_a_day(
 def get_lecture_free_half_an_hour_slots_for_a_day(
     day: datetime.datetime,
     commune: Commune,
-) -> list | list[LectureSlot]:
+) -> list[LectureSlot]:
     """Get free 30-minute slots for lectures."""
     hours = [
         moscow_tz.localize(
@@ -441,28 +329,34 @@ def get_lecture_free_half_an_hour_slots_for_a_day(
                 )
             )
 
-    occupied = get_lecture_next_regs(day, commune)
-    logger.info(f"occupied: {occupied}")
-    if occupied is None:
-        return []
+    therapy_visits, lecture_visits = get_events_for_day(day, commune)
 
     available_slots = []
     for free_slot in free_slots:
-        # Check if the slot overlaps with any occupied slots
-        slot_occupied = False
-        for occ_slot in occupied:
+        # Check for therapy visit conflicts
+        has_therapy = any(
+            (
+                free_slot.start <= therapy.start < free_slot.end
+                or free_slot.start < therapy.end <= free_slot.end
+                or (therapy.start <= free_slot.start and therapy.end >= free_slot.end)
+            )
+            for therapy in therapy_visits
+        )
+
+        if has_therapy:
+            continue
+
+        # Check for existing lecture bookings
+        for lecture in lecture_visits:
             if (
-                free_slot.start <= occ_slot.start < free_slot.end
-                or free_slot.start < occ_slot.end <= free_slot.end
-                or (occ_slot.start <= free_slot.start and occ_slot.end >= free_slot.end)
+                free_slot.start <= lecture.start < free_slot.end
+                or free_slot.start < lecture.end <= free_slot.end
+                or (lecture.start <= free_slot.start and lecture.end >= free_slot.end)
             ):
-                slot_occupied = True
-                free_slot.total_guests = occ_slot.total_guests
+                free_slot.total_guests = lecture.total_guests
                 break
-        if not slot_occupied:
-            available_slots.append(free_slot)
-        elif free_slot.total_guests > 0:  # If slot is partially occupied
-            available_slots.append(free_slot)
+
+        available_slots.append(free_slot)
 
     now = datetime.datetime.now(moscow_tz)
     if day == now.date():
