@@ -2,6 +2,7 @@ import datetime
 import enum
 import logging
 import re
+from typing import List
 
 import pytz
 from ev_registration_bot.config import get_settings
@@ -78,8 +79,39 @@ visit_duration: str | None = None
 ) = range(12)
 
 
+async def delete_previous_messages(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Delete all stored messages for the current chat."""
+    if not context.user_data.get("message_ids"):
+        return
+
+    chat_id = context.user_data.get("chat_id")
+    if not chat_id:
+        return
+
+    message_ids = context.user_data["message_ids"]
+    if message_ids:
+        try:
+            await context.bot.delete_messages(chat_id, message_ids)
+            context.user_data["message_ids"] = []
+        except Exception as e:
+            logger.error(f"Failed to delete messages: {e}")
+
+
+async def store_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, message_id: int
+) -> None:
+    """Store message ID for later deletion."""
+    if "message_ids" not in context.user_data:
+        context.user_data["message_ids"] = []
+    context.user_data["message_ids"].append(message_id)
+    context.user_data["chat_id"] = update.message.chat_id
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /start is issued."""
+
+    await delete_previous_messages(context)
+
     global user_id
     user_id = update.message.from_user.id
     global registration_amount_done
@@ -92,15 +124,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_visit_type = None
     global visit_duration
     visit_duration = None
-    # reset other global variables
+
+    # Clear previous message IDs
+    context.user_data["message_ids"] = []
+    context.user_data["chat_id"] = update.message.chat_id
 
     reply_keyboard = [["Зарегистрироваться"]]
-    await update.message.reply_text(
+    message = await update.message.reply_text(
         "Здесь можно зарегистрироваться на посещение",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard,
         ),
     )
+
+    await store_message(update, context, update.message.message_id)
+    await store_message(update, context, message.message_id)
 
     return CHOOSE_COMMUNE
 
@@ -132,19 +170,25 @@ def get_reply_keyboard():
 
 
 async def choose_commune(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply_keyboard = [communes]
+    await delete_previous_messages(context)
 
-    await update.message.reply_text(
+    reply_keyboard = [communes]
+    message = await update.message.reply_text(
         "Выберите коммуну\n\nЗдесь будет описание каждой коммуны\n\nНажмите /cancel чтобы выйти",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard,
         ),
     )
 
+    await store_message(update, context, update.message.message_id)
+    await store_message(update, context, message.message_id)
+
     return CHOOSE_VISIT_TYPE
 
 
 async def choose_visit_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_previous_messages(context)
+
     reply_keyboard = visit_type
     user_message = update.message.text
 
@@ -154,19 +198,29 @@ async def choose_visit_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif user_message == "Северо-Германские":
         user_chosen_commune = Commune.GERMAN
     else:
-        await update.message.reply_text("Пожалуйста выберите из списка")
+        message = await update.message.reply_text(
+            "Пожалуйста выберите из списка\n\nНажмите /cancel чтобы выйти"
+        )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return CHOOSE_VISIT_TYPE
 
-    await update.message.reply_text(
-        "Выберите тип посещения",
+    message = await update.message.reply_text(
+        "Выберите тип посещения\n\nНажмите /cancel чтобы выйти",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard,
         ),
     )
+
+    await store_message(update, context, update.message.message_id)
+    await store_message(update, context, message.message_id)
+
     return CHOOSE_DATE
 
 
 async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_previous_messages(context)
+
     user_message = update.message.text
 
     global user_visit_type
@@ -175,17 +229,24 @@ async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif user_message == "Лекция (с другими гостями, 30 мин. или 1 час)":
         user_visit_type = VisitType.LECTURE
     else:
-        await update.message.reply_text("Пожалуйста выберите из списка")
+        message = await update.message.reply_text(
+            "Пожалуйста выберите из списка\n\nНажмите /cancel чтобы выйти"
+        )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return CHOOSE_DATE
 
     reply_keyboard = get_reply_keyboard()
 
-    await update.message.reply_text(
+    message = await update.message.reply_text(
         "Выберете дату\n\nНажмите /cancel чтобы выйти",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard,
         ),
     )
+
+    await store_message(update, context, update.message.message_id)
+    await store_message(update, context, message.message_id)
 
     if user_visit_type == VisitType.THERAPY:
         return CHOOSE_TIME
@@ -193,6 +254,8 @@ async def choose_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def choose_visit_duration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_previous_messages(context)
+
     user_message = update.message.text
     global user_chosen_commune
     day = user_message.split(".")[0]
@@ -203,16 +266,22 @@ async def choose_visit_duration(update: Update, context: ContextTypes.DEFAULT_TY
     date = moscow_tz.localize(datetime.datetime(int(year), int(month), int(day))).date()
 
     reply_keyboard = [["30 минут"], ["1 час"]]
-    await update.message.reply_text(
-        "Выберете длительность посещения",
+    message = await update.message.reply_text(
+        "Выберете длительность посещения\n\nНажмите /cancel чтобы выйти",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard,
         ),
     )
+
+    await store_message(update, context, update.message.message_id)
+    await store_message(update, context, message.message_id)
+
     return CHOOSE_TIME_FOR_LECTURE
 
 
 async def choose_time_for_lecture(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_previous_messages(context)
+
     user_message = update.message.text
     global date
     global user_chosen_commune
@@ -229,30 +298,40 @@ async def choose_time_for_lecture(update: Update, context: ContextTypes.DEFAULT_
                 date, user_chosen_commune
             )
         else:
-            await update.message.reply_text("Пожалуйста выберите из списка")
+            message = await update.message.reply_text(
+                "Пожалуйста выберите из списка\n\nНажмите /cancel чтобы выйти"
+            )
+            await store_message(update, context, update.message.message_id)
+            await store_message(update, context, message.message_id)
             return CHOOSE_TIME_FOR_LECTURE
 
     except OutOfTimeException:
-        await update.message.reply_text(
-            "На выбранный день все занято. Пожалуйста, выберите другую дату",
+        message = await update.message.reply_text(
+            "На выбранный день все занято. Пожалуйста, выберите другую дату\n\nНажмите /cancel чтобы выйти",
             reply_markup=ReplyKeyboardMarkup(
                 get_reply_keyboard(),
             ),
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return CHOOSE_DATE
     except google.auth.exceptions.RefreshError:
-        await update.message.reply_text(
+        message = await update.message.reply_text(
             "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
             reply_markup=ReplyKeyboardRemove(),
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         logger.error("Google auth error")
         return ConversationHandler.END
     except Exception as e:
         logger.error(e)
-        await update.message.reply_text(
+        message = await update.message.reply_text(
             "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
             reply_markup=ReplyKeyboardRemove(),
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return ConversationHandler.END
 
     if free_slots_for_a_day:
@@ -268,24 +347,32 @@ async def choose_time_for_lecture(update: Update, context: ContextTypes.DEFAULT_
         ]
 
         if not reply_keyboard:
-            await update.message.reply_text(
-                "На выбранный день все места заняты. Пожалуйста, выберите другую дату",
+            message = await update.message.reply_text(
+                "На выбранный день все места заняты. Пожалуйста, выберите другую дату\n\nНажмите /cancel чтобы выйти",
                 reply_markup=ReplyKeyboardMarkup(
                     get_reply_keyboard(),
                 ),
             )
+            await store_message(update, context, update.message.message_id)
+            await store_message(update, context, message.message_id)
             return CHOOSE_DATE
 
-        await update.message.reply_text(
-            "Выберете время",
+        message = await update.message.reply_text(
+            "Выберете время\n\nНажмите /cancel чтобы выйти",
             reply_markup=ReplyKeyboardMarkup(
                 reply_keyboard,
             ),
         )
+
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
+
         return ARE_CHILDREN
 
 
 async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_previous_messages(context)
+
     logger.info("User %s started free time.", update.message.from_user.first_name)
     user = update.message.from_user
     user_message = update.message.text
@@ -303,26 +390,32 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         free_slots_for_a_day = get_free_slots_for_a_day(date, user_chosen_commune)
     except OutOfTimeException:
-        await update.message.reply_text(
-            "На выбранный день все занято. Пожалуйста, выберите другую дату",
+        message = await update.message.reply_text(
+            "На выбранный день все занято. Пожалуйста, выберите другую дату\n\nНажмите /cancel чтобы выйти",
             reply_markup=ReplyKeyboardMarkup(
                 get_reply_keyboard(),
             ),
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return CHOOSE_DATE
     except google.auth.exceptions.RefreshError:
-        await update.message.reply_text(
+        message = await update.message.reply_text(
             "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
             reply_markup=ReplyKeyboardRemove(),
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         logger.error("Google auth error")
         return ConversationHandler.END
     except ValueError as e:
         logger.error(e)
-        await update.message.reply_text(
+        message = await update.message.reply_text(
             "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
             reply_markup=ReplyKeyboardRemove(),
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return ConversationHandler.END
 
     if free_slots_for_a_day:
@@ -335,16 +428,22 @@ async def choose_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for slot in free_slots_for_a_day
         ]
 
-        await update.message.reply_text(
-            "Выберете время",
+        message = await update.message.reply_text(
+            "Выберете время\n\nНажмите /cancel чтобы выйти",
             reply_markup=ReplyKeyboardMarkup(
                 reply_keyboard,
             ),
         )
+
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
+
         return ARE_CHILDREN
 
 
 async def are_children(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_previous_messages(context)
+
     user_message = update.message.text
     global user_visit_type
     try:
@@ -358,9 +457,11 @@ async def are_children(update: Update, context: ContextTypes.DEFAULT_TYPE):
             available_places = int(user_message.split("(")[1].split(" ")[0])
         print(chosen_start_time, chosen_end_time)
     except IndexError:
-        await update.message.reply_text(
-            "Пожалуйста выберите из списка",
+        message = await update.message.reply_text(
+            "Пожалуйста выберите из списка\n\nНажмите /cancel чтобы выйти",
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return ARE_CHILDREN
 
     global chosen_start_time_str
@@ -375,43 +476,57 @@ async def are_children(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply_keyboard = [["Да", "Нет"]]
 
-    await update.message.reply_text(
-        "Будут ли с Вами дети?",
+    message = await update.message.reply_text(
+        "Будут ли с Вами дети?\n\nНажмите /cancel чтобы выйти",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard,
         ),
     )
+
+    await store_message(update, context, update.message.message_id)
+    await store_message(update, context, message.message_id)
+
     return CHILDREN_AMOUNT
 
 
 async def children_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await delete_previous_messages(context)
+
     global user_children_amount
     user_message = update.message.text
     if user_message == "Нет":
         # Set the user_children_amount to 0 when "Нет" is selected
         user_children_amount = 0
-        await update.message.reply_text(
-            "На какое имя зарегистрировать?",
+        message = await update.message.reply_text(
+            "На какое имя зарегистрировать?\n\nНажмите /cancel чтобы выйти",
             reply_markup=ReplyKeyboardRemove(),
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return REGISTER_AMOUNT
     elif user_message == "Да":
         reply_keyboard = [["1"], ["2"], ["3"], ["4"], ["5"]]
-        await update.message.reply_text(
-            "Укажите какое количество детей будет с Вами",
+        message = await update.message.reply_text(
+            "Укажите какое количество детей будет с Вами\n\nНажмите /cancel чтобы выйти",
             reply_markup=ReplyKeyboardMarkup(
                 reply_keyboard,
             ),
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return REGISTER_NAME
     else:
-        await update.message.reply_text(
-            "Пожалуйста, выберите из списка",
+        message = await update.message.reply_text(
+            "Пожалуйста, выберите из списка\n\nНажмите /cancel чтобы выйти",
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return CHILDREN_AMOUNT
 
 
 async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await delete_previous_messages(context)
+
     user_message = update.message.text
     global user_children_amount
     if user_children_amount is None or user_children_amount != 0:
@@ -419,23 +534,35 @@ async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             # This is to ensure if the previous state was CHILDREN_AMOUNT
             user_children_amount = int(user_message)
             if user_children_amount > 5:
-                await update.message.text("Пожалуйста, выберите из списка")
+                message = await update.message.reply_text(
+                    "Пожалуйста, выберите из списка\n\nНажмите /cancel чтобы выйти"
+                )
+                await store_message(update, context, update.message.message_id)
+                await store_message(update, context, message.message_id)
                 user_children_amount = None
                 return CHILDREN_AMOUNT
         except ValueError:
-            await update.message.text("Пожалуйста, выберите из списка")
+            message = await update.message.reply_text(
+                "Пожалуйста, выберите из списка\n\nНажмите /cancel чтобы выйти"
+            )
+            await store_message(update, context, update.message.message_id)
+            await store_message(update, context, message.message_id)
             user_children_amount = None
             return CHILDREN_AMOUNT
 
-        await update.message.reply_text(
-            "На какое имя зарегистрировать?",
+        message = await update.message.reply_text(
+            "На какое имя зарегистрировать?\n\nНажмите /cancel чтобы выйти",
             reply_markup=ReplyKeyboardRemove(),
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
 
     return REGISTER_AMOUNT
 
 
 async def register_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await delete_previous_messages(context)
+
     user = update.message.from_user
     user_message = update.message.text
 
@@ -447,10 +574,12 @@ async def register_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if user_visit_type == VisitType.LECTURE:
             reply_keyboard = [[str(i)] for i in range(1, min(6, available_places + 1))]
             if not reply_keyboard:
-                await update.message.reply_text(
+                message = await update.message.reply_text(
                     "К сожалению, на выбранное время не осталось свободных мест.\n\nЧтобы записаться повторно нажмите /start",
                     reply_markup=ReplyKeyboardRemove(),
                 )
+                await store_message(update, context, update.message.message_id)
+                await store_message(update, context, message.message_id)
                 return ConversationHandler.END
         else:
             reply_keyboard = [
@@ -461,16 +590,22 @@ async def register_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 ["5"],
             ]
 
-        await update.message.reply_text(
-            "Сколько всего человек придет на посещение включая Вас?\n\nВыберите из списка:",
+        message = await update.message.reply_text(
+            "Сколько всего человек придет на посещение, включая Вас? Выберите из списка\n\nНажмите /cancel чтобы выйти",
             reply_markup=ReplyKeyboardMarkup(
                 reply_keyboard,
             ),
         )
+
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
+
         return REGISTER_PHONE
 
 
 async def register_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await delete_previous_messages(context)
+
     global registration_amount_done
     user = update.message.from_user
     user_message = update.message.text
@@ -487,9 +622,11 @@ async def register_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 )
                 registration_amount_done = True
                 if int(user_message) > 5:
-                    await update.message.reply_text(
-                        "Количество не должно превышать 5 человек\n\nПожалуйста выберите из списка:",
+                    message = await update.message.reply_text(
+                        "Количество не должно превышать 5 человек\n\nПожалуйста выберите из списка\n\nНажмите /cancel чтобы выйти",
                     )
+                    await store_message(update, context, update.message.message_id)
+                    await store_message(update, context, message.message_id)
                     return REGISTER_PHONE
 
                 # For lecture visits, check if the requested number of guests exceeds available places
@@ -497,30 +634,39 @@ async def register_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     user_visit_type == VisitType.LECTURE
                     and registration_amount > available_places
                 ):
-                    await update.message.reply_text(
-                        f"К сожалению, на выбранное время осталось только {available_places} мест.\n\nПожалуйста выберите меньшее количество человек:",
+                    message = await update.message.reply_text(
+                        f"К сожалению, на выбранное время осталось только {available_places} мест.\n\nПожалуйста выберите меньшее количество человек\n\nНажмите /cancel чтобы выйти",
                         reply_markup=ReplyKeyboardMarkup(
                             [[str(i)] for i in range(1, available_places + 1)]
                         ),
                     )
+                    await store_message(update, context, update.message.message_id)
+                    await store_message(update, context, message.message_id)
                     registration_amount_done = False
                     return REGISTER_PHONE
             except ValueError:
-                await update.message.reply_text(
-                    "Количество должно быть числом\n\nПожалуйста выберите из списка:",
+                message = await update.message.reply_text(
+                    "Количество должно быть числом\n\nПожалуйста выберите из списка\n\nНажмите /cancel чтобы выйти",
                 )
+                await store_message(update, context, update.message.message_id)
+                await store_message(update, context, message.message_id)
                 return REGISTER_PHONE
 
-        await update.message.reply_text(
-            "Напишите ваш номер телефона для связи",
+        message = await update.message.reply_text(
+            "Напишите ваш номер телефона для связи\n\nНажмите /cancel чтобы выйти",
             reply_markup=ReplyKeyboardRemove(),
         )
+
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
 
         logger.info(f"line 306 {registration_amount_done=}")
         return MAKE_REGISTRATION
 
 
 async def make_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await delete_previous_messages(context)
+
     user = update.message.from_user
     user_message = update.message.text
     phone_regex = re.compile(
@@ -530,9 +676,11 @@ async def make_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if user_message:
         # / check regexp
         if not phone_regex.match(user_message):
-            await update.message.reply_text(
-                "Номер телефона не соответствует формату. Попробуйте снова.",
+            message = await update.message.reply_text(
+                "Номер телефона не соответствует формату. Попробуйте снова.\n\nНажмите /cancel чтобы выйти",
             )
+            await store_message(update, context, update.message.message_id)
+            await store_message(update, context, message.message_id)
             return MAKE_REGISTRATION
 
         registration_phone = user_message
@@ -560,41 +708,52 @@ async def make_registration(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
         except (ValueError, AssertionError) as e:
             logger.error(f"An error occurred: {e}")
-            await update.message.reply_text(
+            message = await update.message.reply_text(
                 "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
                 reply_markup=ReplyKeyboardRemove(),
             )
+            await store_message(update, context, update.message.message_id)
+            await store_message(update, context, message.message_id)
             return ConversationHandler.END
+
         if registration_result:
+            # Delete all previous messages before showing success
+            await delete_previous_messages(context)
             await update.message.reply_text(
                 "Вы успешно зарегистрированы!\nБудем Вас ждать!\n\nЧтобы записаться повторно нажмите /start",
                 reply_markup=ReplyKeyboardRemove(),
             )
             return ConversationHandler.END
-        await update.message.reply_text(
+
+        message = await update.message.reply_text(
             "Что-то пошло не так...\n\nЧтобы записаться повторно нажмите /start",
             reply_markup=ReplyKeyboardRemove(),
         )
+        await store_message(update, context, update.message.message_id)
+        await store_message(update, context, message.message_id)
         return ConversationHandler.END
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
+    await delete_previous_messages(context)
 
     user = update.message.from_user
 
     logger.info("User %s canceled the conversation.", user.first_name)
 
-    await update.message.reply_text(
+    message = await update.message.reply_text(
         "Чтобы зарегистрироваться снова нажмите /start",
         reply_markup=ReplyKeyboardRemove(),
     )
+
+    await store_message(update, context, update.message.message_id)
+    await store_message(update, context, message.message_id)
 
     return ConversationHandler.END
 
 
 if __name__ == "__main__":
-
     application = ApplicationBuilder().token(get_settings().telegram.bot_token).build()
 
     init_conv_handler = ConversationHandler(
